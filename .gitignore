@@ -1,0 +1,4 @@
+core/*
+libraries/*
+Release/*
+.ino.cpp
