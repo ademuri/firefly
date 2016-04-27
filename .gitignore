@@ -2,3 +2,4 @@ core/*
 libraries/*
 Release/*
 .ino.cpp
+.settings/*
