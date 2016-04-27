@@ -8,3 +8,6 @@ Uses a light-modified version of Panstamp cc1101 library. I updated the default 
 to assert when a packet is available and unread. Then, receiveData checks whether GDO2 is asserted before trying to
 read from the RX FIFO. Without this, frequent calls to receiveData will prevent the cc1101 from receiving data (!),
 as it appears to not pick up packets when communicating over SPI.
+
+LED driver circuits inspired by [this](http://www.tbideas.com/blog/build-an-arduino-shield-to-drive-high-power-rgb-led/).
+I'm using "3W" RGB LEDs from [Adafruit](https://www.adafruit.com/products/2530), and providing them each with 330mA.
