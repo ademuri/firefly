@@ -59,6 +59,41 @@ byte lastReceivedBrag = 0;
 bool bragReceived = false;
 bool bragSent = false;
 
+byte lastIdLower = 0;
+byte lastIdUpper = 0;
+
+// Appends random ids and sends
+void sendData(CCPACKET packet) {
+	byte oldLength = packet.length;
+	packet.length += 2;
+
+	lastIdLower = random(0xFF);
+	lastIdUpper = random(0xFF);
+
+	packet.data[oldLength] = lastIdLower;
+	packet.data[oldLength+1] = lastIdUpper;
+
+	cc.sendData(packet);
+	cc.sendData(packet);
+}
+
+
+byte receiveData(CCPACKET *packet) {
+	if (cc.receiveData(packet) > 0) {
+		byte origLength = packet->length - 2;
+		if (packet->data[origLength] != lastIdLower
+				&& packet->data[origLength+1] != lastIdUpper) {
+			packet ->length -= 2;
+			return packet->length;
+		} else {
+#ifdef DEBUG
+			Serial.println("dupe packet");
+#endif
+		}
+	}
+	return 0;
+}
+
 //The setup function is called once at startup of the sketch
 void setup() {
 	Serial.begin(9600);
@@ -76,7 +111,7 @@ void setup() {
 	cc.writeReg(CC1101_MCSM1, 0b100000);
 
 	// Go for maximum range
-	//cc.setTxPowerAmp(PA_LongDistance);
+	cc.setTxPowerAmp(PA_LongDistance);
 
 	cc.setRxState();
 
@@ -98,6 +133,16 @@ void processHeartbeat(CCPACKET packet) {
 	writeColor(0, 0, 0);
 }
 
+void processOwnHeartbeat(CCPACKET packet) {
+	writeColor(packet.data[1], packet.data[2], packet.data[3]);
+	delay(40);
+	writeColor(0, 0, 0);
+	delay(50);
+	writeColor(packet.data[1], packet.data[2], packet.data[3]);
+	delay(40);
+	writeColor(0, 0, 0);
+}
+
 // Heartbeat packet structure:
 // 0: type (HEARTBEAT)
 // 1: Red intensity
@@ -113,10 +158,10 @@ void broadcastHeartbeat() {
 	heartbeat.data[2] = 0xFF;
 	heartbeat.data[3] = 0xFF;
 
-	cc.sendData(heartbeat);
+	sendData(heartbeat);
 	masterLastHeartbeatTime = millis();
 
-	processHeartbeat(heartbeat);
+	processOwnHeartbeat(heartbeat);
 }
 
 // Causes all other masters in range to become slaves. Structure:
@@ -126,7 +171,7 @@ void broadcastClaimMaster() {
 	claimMaster.length = 1;
 	claimMaster.data[0] = CLAIM_MASTER;
 
-	cc.sendData(claimMaster);
+	sendData(claimMaster);
 }
 
 // Causes all reachable nodes to respond. Used to identify how many other nodes
@@ -144,7 +189,7 @@ void broadcastPing() {
 	lastNonceLower = ping.data[1] = random(0x100);
 	lastNonceUpper = ping.data[2] = random(0x100);
 
-	cc.sendData(ping);
+	sendData(ping);
 
 	pingStartedTime = millis();
 	lastPingCount = 0;
@@ -164,20 +209,10 @@ void respondToPing(CCPACKET originalPing) {
 	pingResponse.data[1] = originalPing.data[1];
 	pingResponse.data[2] = originalPing.data[2];
 
-	cc.sendData(pingResponse);
+	sendData(pingResponse);
 }
 
 bool isMyPing(CCPACKET pingResponse) {
-	Serial.print("isMyPing: (");
-	Serial.print(pingResponse.data[1], DEC);
-	Serial.print(",");
-	Serial.print(lastNonceLower, DEC);
-	Serial.print(") (");
-
-	Serial.print(pingResponse.data[2], DEC);
-	Serial.print(",");
-	Serial.print(lastNonceUpper, DEC);
-	Serial.println(")");
 	return pingResponse.data[1] == lastNonceLower
 			&& pingResponse.data[2] == lastNonceUpper;
 }
@@ -192,7 +227,7 @@ void broadcastMasterNegotiateAnnounce() {
 	brag.data[0] = MASTER_NEGIOTATE_ANNOUNCE;
 	brag.data[1] = lastPingCount;
 
-	cc.sendData(brag);
+	sendData(brag);
 }
 
 byte getNegotiateAnnounceCount(CCPACKET brag) {
@@ -206,7 +241,7 @@ State prevState = INIT;
 void loop() {
 	switch (state) {
 	case INIT:
-		if (cc.receiveData(&packet) > 0) {
+		if (receiveData(&packet) > 0) {
 			// Process all available packets
 			do {
 				switch(packet.data[0]) {
@@ -226,10 +261,12 @@ void loop() {
 					break;
 				}
 				delay(1);
-			} while (cc.receiveData(&packet) > 0);
+			} while (receiveData(&packet) > 0);
 		}
 		if (millis() > (initStarted + INIT_SEARCH_TIME_MILLIS)) {
+#ifdef DEBUG
 			Serial.println("No packets received - becoming master.");
+#endif
 			state = MASTER;
 			broadcastClaimMaster();
 			broadcastHeartbeat();
@@ -239,7 +276,7 @@ void loop() {
 		if (millis() > (masterLastHeartbeatTime + MASTER_HEARTBEAT_INTERVAL)) {
 			broadcastHeartbeat();
 		}
-		if (cc.receiveData(&packet) > 0) {
+		if (receiveData(&packet) > 0) {
 			switch(packet.data[0]) {
 			case HEARTBEAT:
 			case MASTER_NEGIOTATE_ANNOUNCE:
@@ -262,7 +299,7 @@ void loop() {
 		break;
 	// TODO: this will probably break horribly if there are more than 2 nodes doing this at once
 	case MASTER_SELECTION:
-		if (cc.receiveData(&packet) > 0) {
+		if (receiveData(&packet) > 0) {
 			switch(packet.data[0]) {
 			case CLAIM_MASTER:
 				// If someone else thinks they see more nodes than us, trust them and become a slave.
@@ -320,13 +357,15 @@ void loop() {
 
 		// If the timeout expires, become the master and broadcast that we're doing so
 		if (millis() > pingStartedTime + MASTER_SEARCH_TIME) {
+#ifdef DEBUG
 			Serial.println("Master search timed out - becoming master.");
+#endif
 			state = MASTER;
 			broadcastClaimMaster();
 		}
 		break;
 	case SLAVE:
-		if (cc.receiveData(&packet) > 0) {
+		if (receiveData(&packet) > 0) {
 			switch(packet.data[0]) {
 			case HEARTBEAT:
 				processHeartbeat(packet);
@@ -343,7 +382,9 @@ void loop() {
 			}
 		} else {
 			if (millis() > slaveLastHeartbeat + SLAVE_TIMEOUT) {
+#ifdef DEBUG
 				Serial.println("No heartbeats - becoming master");
+#endif
 				state = MASTER;
 			}
 		}
@@ -352,6 +393,7 @@ void loop() {
 		break;
 	}
 	delay(5);
+#ifdef DEBUG
 	if (state != prevState) {
 		Serial.print("State: ");
 		Serial.print(prevState);
@@ -359,4 +401,5 @@ void loop() {
 		Serial.println(state);
 		prevState = state;
 	}
+#endif
 }
