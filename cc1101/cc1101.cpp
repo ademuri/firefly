@@ -540,6 +540,9 @@ Serial.println();
 byte CC1101::receiveData(CCPACKET * packet)
 {
   byte val;
+  if (!digitalRead(GDO2)) {
+	  return 0;
+  }
   byte rxBytes = readStatusReg(CC1101_RXBYTES);
 
   // Any byte waiting to be read and no overflow?

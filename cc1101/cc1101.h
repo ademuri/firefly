@@ -204,7 +204,7 @@ enum RFSTATE
  * Settings optimized for low current consumption
  */
 //#define CC1101_DEFVAL_IOCFG2     0x29        // GDO2 Output Pin Configuration
-#define CC1101_DEFVAL_IOCFG2     0x2E        // GDO2 Output Pin Configuration
+#define CC1101_DEFVAL_IOCFG2     0x07        // GDO2 Output Pin Configuration
 #define CC1101_DEFVAL_IOCFG1     0x2E        // GDO1 Output Pin Configuration
 #define CC1101_DEFVAL_IOCFG0     0x06        // GDO0 Output Pin Configuration
 #define CC1101_DEFVAL_FIFOTHR    0x07        // RX FIFO and TX FIFO Thresholds
