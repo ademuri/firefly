@@ -3,3 +3,5 @@ libraries/*
 Release/*
 .ino.cpp
 .settings/*
+.project
+.cproject
