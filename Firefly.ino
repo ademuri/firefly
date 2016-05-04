@@ -22,6 +22,8 @@
 
 #include "cc1101/cc1101.h"
 
+#define DEBUG
+
 // Use an unconnected analog pin to seed the random number generator
 #define ANALOG_RANDOM_PIN 1
 #define LED_R 3 // ATMega328P pin 5
@@ -30,9 +32,9 @@
 
 
 const unsigned long INIT_SEARCH_TIME_MILLIS = 5000;
-const unsigned long MASTER_SEARCH_TIME = 5000;
 const unsigned long MASTER_HEARTBEAT_INTERVAL = 1000;
 const unsigned long HEARTBEAT_DURATION = 100;
+const unsigned long MASTER_SEARCH_TIME = 2000;
 const unsigned long PING_WAIT = 1000;
 
 // How long in slave mode without any heartbeats before becoming a master
@@ -51,7 +53,7 @@ enum PacketType {
 	PING,
 	PING_RESPONSE,
 	CLAIM_MASTER,
-	MASTER_NEGIOTATE_ANNOUNCE,	// Master brags about how many visible nodes
+	MASTER_NEGOTIATE_ANNOUNCE,	// Master brags about how many visible nodes
 };
 
 CC1101 cc;
@@ -100,14 +102,34 @@ void sendData(CCPACKET packet) {
 
 byte receiveData(CCPACKET *packet) {
 	if (cc.receiveData(packet) > 0) {
+		if (packet->length < 2) {
+#ifdef DEBUG
+			Serial.println("Invalid packet!");
+#endif
+			return 0;
+		}
 		byte origLength = packet->length - 2;
 		if (packet->data[origLength] != lastIdLower
 				&& packet->data[origLength+1] != lastIdUpper) {
 			packet ->length -= 2;
+			lastIdLower = packet->data[origLength];
+			lastIdUpper = packet->data[origLength+1];
+
+#ifdef DEBUG
+			// Dump the packet
+			for (int i=0; i<packet->length; i++) {
+				Serial.print(packet->data[i], DEC);
+				if (i<packet->length-1) {
+					Serial.print(",");
+				}
+			}
+			Serial.println();
+#endif
+
 			return packet->length;
 		} else {
 #ifdef DEBUG
-			Serial.println("dupe packet");
+			//Serial.println("dupe packet");
 #endif
 		}
 	}
@@ -137,6 +159,9 @@ void setup() {
 
 	Serial.println("Starting search...");
 	initStarted = millis();
+
+	// TODO: remove this
+	state = MASTER;
 }
 
 void writeColor(byte r, byte g, byte b) {
@@ -206,8 +231,8 @@ void broadcastPing() {
 	ping.length = 3;
 
 	ping.data[0] = PING;
-	lastNonceLower = ping.data[1] = random(0x100);
-	lastNonceUpper = ping.data[2] = random(0x100);
+	lastNonceLower = ping.data[1] = random(0xFF);
+	lastNonceUpper = ping.data[2] = random(0xFF);
 
 	sendData(ping);
 
@@ -238,13 +263,13 @@ bool isMyPing(CCPACKET pingResponse) {
 }
 
 // Probably ends master selection. Announces how many nodes we can see. Whoever has the higher
-// number becomes master. If the numbers are equal, we flip a coin until someone wins.
-// 0: type (MASTER_NEGIOTATE_ANNOUNCE)
+// number becomes master. If the numbers are equal, the last person to respond wins.
+// 0: type (MASTER_NEGOTIATE_ANNOUNCE)
 // 1: node count
 void broadcastMasterNegotiateAnnounce() {
 	CCPACKET brag;
 	brag.length = 2;
-	brag.data[0] = MASTER_NEGIOTATE_ANNOUNCE;
+	brag.data[0] = MASTER_NEGOTIATE_ANNOUNCE;
 	brag.data[1] = lastPingCount;
 
 	sendData(brag);
@@ -267,6 +292,7 @@ void loop() {
 				switch(packet.data[0]) {
 				case HEARTBEAT:
 					state = SLAVE;
+					slaveLastHeartbeat = millis();
 					processHeartbeat(packet);
 					break;
 				case CLAIM_MASTER:
@@ -280,7 +306,6 @@ void loop() {
 				default:
 					break;
 				}
-				delay(1);
 			} while (receiveData(&packet) > 0);
 		}
 		if (millis() > (initStarted + INIT_SEARCH_TIME_MILLIS)) {
@@ -292,6 +317,7 @@ void loop() {
 			broadcastHeartbeat();
 		}
 		break;
+
 	case MASTER:
 		if (millis() > (masterLastHeartbeatTime + MASTER_HEARTBEAT_INTERVAL)) {
 			broadcastHeartbeat();
@@ -299,7 +325,6 @@ void loop() {
 		if (receiveData(&packet) > 0) {
 			switch(packet.data[0]) {
 			case HEARTBEAT:
-			case MASTER_NEGIOTATE_ANNOUNCE:
 				// Two masters - time to do master selection!
 				state = MASTER_SELECTION;
 				broadcastPing();
@@ -312,18 +337,26 @@ void loop() {
 				// ignore this.
 			case UNKNOWN:
 			case CLAIM_MASTER:
+			case MASTER_NEGOTIATE_ANNOUNCE:
+				// This case means we have two masters, but we want the timings to line up, so
+				// wait for a heartbeat to start master selection.
 			default:
 				break;
 			}
 		}
 		break;
+
 	// TODO: this will probably break horribly if there are more than 2 nodes doing this at once
 	case MASTER_SELECTION:
 		if (receiveData(&packet) > 0) {
 			switch(packet.data[0]) {
 			case CLAIM_MASTER:
 				// If someone else thinks they see more nodes than us, trust them and become a slave.
+#ifdef DEBUG
+				Serial.println("CLAIM_MASTER received, becoming slave");
+#endif
 				state = SLAVE;
+				slaveLastHeartbeat = millis();
 				break;
 			case PING:
 				respondToPing(packet);
@@ -332,10 +365,14 @@ void loop() {
 				// Note: we don't check whether the PING_WAIT time has expired here - we assume that
 				// this loop is fast and it will get picked up below
 				if (isMyPing(packet)) {
+#ifdef DEBUG
+					Serial.print("Received ping: ");
 					lastPingCount++;
+					Serial.println(lastPingCount, DEC);
+#endif
 				}
 				break;
-			case MASTER_NEGIOTATE_ANNOUNCE:
+			case MASTER_NEGOTIATE_ANNOUNCE:
 				bragReceived = true;
 				lastReceivedBrag = getNegotiateAnnounceCount(packet);
 				// TODO: if our count is already greater than this, don't wait for PING_WAIT to elapse,
@@ -348,21 +385,36 @@ void loop() {
 			}
 		}
 
+		if (state == SLAVE) {
+			break;
+		}
+
 		// Still do the heartbeat when negotiating for a single master
 		if (millis() > (masterLastHeartbeatTime + MASTER_HEARTBEAT_INTERVAL)) {
 			broadcastHeartbeat();
 		}
 
-		if (millis() > pingStartedTime + PING_WAIT) {
+		if (millis() > (pingStartedTime + PING_WAIT)) {
 			// If we've already received another brag, check it
 			if (bragReceived) {
 				if (lastReceivedBrag > lastPingCount) {
 					// Become the slave
+#ifdef DEBUG
+					Serial.println("Received brag - becoming slave");
+#endif
 					state = SLAVE;
-				} else if (lastReceivedBrag <= lastPingCount) {
+					slaveLastHeartbeat = millis();
+				} else {
 					// Become the master
 					// Note: if the node counts are equal, the node to finish last (i.e. us, here)
 					// becomes the master. This makes things simpler.
+#ifdef DEBUG
+					Serial.print("Received brag - becoming master: (");
+					Serial.print(lastPingCount);
+					Serial.print(",");
+					Serial.print(lastReceivedBrag);
+					Serial.println(")");
+#endif
 					state = MASTER;
 					broadcastClaimMaster();
 				}
@@ -376,7 +428,7 @@ void loop() {
 		}
 
 		// If the timeout expires, become the master and broadcast that we're doing so
-		if (millis() > pingStartedTime + MASTER_SEARCH_TIME) {
+		if (state == MASTER_SELECTION && millis() > (pingStartedTime + MASTER_SEARCH_TIME)) {
 #ifdef DEBUG
 			Serial.println("Master search timed out - becoming master.");
 #endif
@@ -406,13 +458,13 @@ void loop() {
 				Serial.println("No heartbeats - becoming master");
 #endif
 				state = MASTER;
+				broadcastClaimMaster();
 			}
 		}
 		break;
 	default:
 		break;
 	}
-	delay(5);
 #ifdef DEBUG
 	if (state != prevState) {
 		Serial.print("State: ");

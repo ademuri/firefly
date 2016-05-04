@@ -26,7 +26,7 @@
 
 #include "../cc1101/nvolat.h"
 
-#define RADIO_DEBUG
+//#define RADIO_DEBUG
 
 /**
  * Macros
@@ -569,7 +569,7 @@ byte CC1101::receiveData(CCPACKET * packet)
     packet->length = 0;
 
   setIdleState();       // Enter IDLE state
-  flushRxFifo();        // Flush Rx FIFO
+  //flushRxFifo();        // Flush Rx FIFO
   //cmdStrobe(CC1101_SCAL);
 
   // Back to RX state
