@@ -11,3 +11,14 @@ as it appears to not pick up packets when communicating over SPI.
 
 LED driver circuits inspired by [this](http://www.tbideas.com/blog/build-an-arduino-shield-to-drive-high-power-rgb-led/).
 I'm using "3W" RGB LEDs from [Adafruit](https://www.adafruit.com/products/2530), and providing them each with 330mA.
+
+## License
+
+This entire project (software and hardware) is released under the GPLv3 license. See [LICENSE](./LICENSE).
+
+## Attribution
+
+Uses the following software:
+
+- [feilipu's FreeRTOS fork](https://github.com/feilipu/Arduino_FreeRTOS_Library), but modified to use Timer1 instead of the watchdog
+- [panStamp cc1101 library](https://github.com/panStamp/arduino_avr)
