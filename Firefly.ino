@@ -20,6 +20,7 @@
 
 #include "Arduino.h"
 
+#include "FreeRTOS/Arduino_FreeRTOS.h"
 #include "cc1101/cc1101.h"
 
 #define DEBUG
@@ -36,6 +37,9 @@ const unsigned long MASTER_HEARTBEAT_INTERVAL = 1000;
 const unsigned long HEARTBEAT_DURATION = 100;
 const unsigned long MASTER_SEARCH_TIME = 2000;
 const unsigned long PING_WAIT = 1000;
+
+// Convert the constants above to ticks
+const unsigned long HEARTBEAT_DURATION_TICKS = HEARTBEAT_DURATION / portTICK_PERIOD_MS;
 
 // How long in slave mode without any heartbeats before becoming a master
 const unsigned long SLAVE_TIMEOUT = 5000;
@@ -127,42 +131,11 @@ byte receiveData(CCPACKET *packet) {
 #endif
 
 			return packet->length;
-		} else {
-#ifdef DEBUG
-			//Serial.println("dupe packet");
-#endif
 		}
 	}
 	return 0;
 }
 
-//The setup function is called once at startup of the sketch
-void setup() {
-	Serial.begin(9600);
-	randomSeed(analogRead(ANALOG_RANDOM_PIN));
-	cc.init();
-	cc.setCarrierFreq(CFREQ_433);
-
-	// Receive packets to all addresses
-	cc.disableAddressCheck();
-
-	// Setup some config values.
-	// 10: clear channel "Unless currently receiving a packet"
-	// 1111: default to RX mode after sending or receiving a packet
-	//cc.writeReg(CC1101_MCSM1, 0b101111);
-	cc.writeReg(CC1101_MCSM1, 0b100000);
-
-	// Go for maximum range
-	cc.setTxPowerAmp(PA_LongDistance);
-
-	cc.setRxState();
-
-	Serial.println("Starting search...");
-	initStarted = millis();
-
-	// TODO: remove this
-	state = MASTER;
-}
 
 void writeColor(byte r, byte g, byte b) {
 	analogWrite(LED_R, r);
@@ -174,17 +147,17 @@ void writeColor(byte r, byte g, byte b) {
 // Blinks a heartbeat for a preset amount of time. Blocks for HEARTBEAT_DURATION or so.
 void processHeartbeat(CCPACKET packet) {
 	writeColor(packet.data[1], packet.data[2], packet.data[3]);
-	delay(HEARTBEAT_DURATION);
+	vTaskDelay(HEARTBEAT_DURATION_TICKS);
 	writeColor(0, 0, 0);
 }
 
 void processOwnHeartbeat(CCPACKET packet) {
 	writeColor(packet.data[1], packet.data[2], packet.data[3]);
-	delay(40);
+	vTaskDelay(40);
 	writeColor(0, 0, 0);
-	delay(50);
+	vTaskDelay(50);
 	writeColor(packet.data[1], packet.data[2], packet.data[3]);
-	delay(40);
+	vTaskDelay(40);
 	writeColor(0, 0, 0);
 }
 
@@ -283,195 +256,240 @@ CCPACKET packet;
 State prevState = INIT;
 
 // The loop function is called in an endless loop
-void loop() {
-	switch (state) {
-	case INIT:
-		if (receiveData(&packet) > 0) {
-			// Process all available packets
-			do {
+void mainLoop(void* params) {
+	while (1) {
+		switch (state) {
+		case INIT:
+			if (receiveData(&packet) > 0) {
+				// Process all available packets
+				do {
+					switch(packet.data[0]) {
+					case HEARTBEAT:
+						state = SLAVE;
+						slaveLastHeartbeat = millis();
+						processHeartbeat(packet);
+						break;
+					case CLAIM_MASTER:
+						state = SLAVE;
+						break;
+					case PING:
+						respondToPing(packet);
+						break;
+					case PING_RESPONSE:
+					case UNKNOWN:
+					default:
+						break;
+					}
+				} while (receiveData(&packet) > 0);
+			}
+			if (millis() > (initStarted + INIT_SEARCH_TIME_MILLIS)) {
+#ifdef DEBUG
+				Serial.println("No packets received - becoming master.");
+#endif
+				state = MASTER;
+				broadcastClaimMaster();
+				broadcastHeartbeat();
+			}
+			break;
+
+		case MASTER:
+			if (millis() > (masterLastHeartbeatTime + MASTER_HEARTBEAT_INTERVAL)) {
+				broadcastHeartbeat();
+			}
+			if (receiveData(&packet) > 0) {
 				switch(packet.data[0]) {
 				case HEARTBEAT:
-					state = SLAVE;
-					slaveLastHeartbeat = millis();
-					processHeartbeat(packet);
-					break;
-				case CLAIM_MASTER:
-					state = SLAVE;
+					// Two masters - time to do master selection!
+					state = MASTER_SELECTION;
+					broadcastPing();
 					break;
 				case PING:
 					respondToPing(packet);
 					break;
 				case PING_RESPONSE:
+					// If we're not doing master selection, we don't care about ping responses, so
+					// ignore this.
+				case UNKNOWN:
+				case CLAIM_MASTER:
+				case MASTER_NEGOTIATE_ANNOUNCE:
+					// This case means we have two masters, but we want the timings to line up, so
+					// wait for a heartbeat to start master selection.
+				default:
+					break;
+				}
+			}
+			break;
+
+		// TODO: this will probably break horribly if there are more than 2 nodes doing this at once
+		case MASTER_SELECTION:
+			if (receiveData(&packet) > 0) {
+				switch(packet.data[0]) {
+				case CLAIM_MASTER:
+					// If someone else thinks they see more nodes than us, trust them and become a slave.
+#ifdef DEBUG
+					Serial.println("CLAIM_MASTER received, becoming slave");
+#endif
+					state = SLAVE;
+					slaveLastHeartbeat = millis();
+					break;
+				case PING:
+					respondToPing(packet);
+					break;
+				case PING_RESPONSE:
+					// Note: we don't check whether the PING_WAIT time has expired here - we assume that
+					// this loop is fast and it will get picked up below
+					if (isMyPing(packet)) {
+#ifdef DEBUG
+						Serial.print("Received ping: ");
+						lastPingCount++;
+						Serial.println(lastPingCount, DEC);
+#endif
+					}
+					break;
+				case MASTER_NEGOTIATE_ANNOUNCE:
+					bragReceived = true;
+					lastReceivedBrag = getNegotiateAnnounceCount(packet);
+					// TODO: if our count is already greater than this, don't wait for PING_WAIT to elapse,
+					// and just become the master already.
+					break;
+				case HEARTBEAT:
 				case UNKNOWN:
 				default:
 					break;
 				}
-			} while (receiveData(&packet) > 0);
-		}
-		if (millis() > (initStarted + INIT_SEARCH_TIME_MILLIS)) {
-#ifdef DEBUG
-			Serial.println("No packets received - becoming master.");
-#endif
-			state = MASTER;
-			broadcastClaimMaster();
-			broadcastHeartbeat();
-		}
-		break;
+			}
 
-	case MASTER:
-		if (millis() > (masterLastHeartbeatTime + MASTER_HEARTBEAT_INTERVAL)) {
-			broadcastHeartbeat();
-		}
-		if (receiveData(&packet) > 0) {
-			switch(packet.data[0]) {
-			case HEARTBEAT:
-				// Two masters - time to do master selection!
-				state = MASTER_SELECTION;
-				broadcastPing();
-				break;
-			case PING:
-				respondToPing(packet);
-				break;
-			case PING_RESPONSE:
-				// If we're not doing master selection, we don't care about ping responses, so
-				// ignore this.
-			case UNKNOWN:
-			case CLAIM_MASTER:
-			case MASTER_NEGOTIATE_ANNOUNCE:
-				// This case means we have two masters, but we want the timings to line up, so
-				// wait for a heartbeat to start master selection.
-			default:
+			if (state == SLAVE) {
 				break;
 			}
-		}
-		break;
 
-	// TODO: this will probably break horribly if there are more than 2 nodes doing this at once
-	case MASTER_SELECTION:
-		if (receiveData(&packet) > 0) {
-			switch(packet.data[0]) {
-			case CLAIM_MASTER:
-				// If someone else thinks they see more nodes than us, trust them and become a slave.
-#ifdef DEBUG
-				Serial.println("CLAIM_MASTER received, becoming slave");
-#endif
-				state = SLAVE;
-				slaveLastHeartbeat = millis();
-				break;
-			case PING:
-				respondToPing(packet);
-				break;
-			case PING_RESPONSE:
-				// Note: we don't check whether the PING_WAIT time has expired here - we assume that
-				// this loop is fast and it will get picked up below
-				if (isMyPing(packet)) {
-#ifdef DEBUG
-					Serial.print("Received ping: ");
-					lastPingCount++;
-					Serial.println(lastPingCount, DEC);
-#endif
-				}
-				break;
-			case MASTER_NEGOTIATE_ANNOUNCE:
-				bragReceived = true;
-				lastReceivedBrag = getNegotiateAnnounceCount(packet);
-				// TODO: if our count is already greater than this, don't wait for PING_WAIT to elapse,
-				// and just become the master already.
-				break;
-			case HEARTBEAT:
-			case UNKNOWN:
-			default:
-				break;
+			// Still do the heartbeat when negotiating for a single master
+			if (millis() > (masterLastHeartbeatTime + MASTER_HEARTBEAT_INTERVAL)) {
+				broadcastHeartbeat();
 			}
-		}
 
-		if (state == SLAVE) {
-			break;
-		}
-
-		// Still do the heartbeat when negotiating for a single master
-		if (millis() > (masterLastHeartbeatTime + MASTER_HEARTBEAT_INTERVAL)) {
-			broadcastHeartbeat();
-		}
-
-		if (millis() > (pingStartedTime + PING_WAIT)) {
-			// If we've already received another brag, check it
-			if (bragReceived) {
-				if (lastReceivedBrag > lastPingCount) {
-					// Become the slave
+			if (millis() > (pingStartedTime + PING_WAIT)) {
+				// If we've already received another brag, check it
+				if (bragReceived) {
+					if (lastReceivedBrag > lastPingCount) {
+						// Become the slave
 #ifdef DEBUG
-					Serial.println("Received brag - becoming slave");
+						Serial.println("Received brag - becoming slave");
 #endif
-					state = SLAVE;
-					slaveLastHeartbeat = millis();
+						state = SLAVE;
+						slaveLastHeartbeat = millis();
+					} else {
+						// Become the master
+						// Note: if the node counts are equal, the node to finish last (i.e. us, here)
+						// becomes the master. This makes things simpler.
+#ifdef DEBUG
+						Serial.print("Received brag - becoming master: (");
+						Serial.print(lastPingCount);
+						Serial.print(",");
+						Serial.print(lastReceivedBrag);
+						Serial.println(")");
+#endif
+						state = MASTER;
+						broadcastClaimMaster();
+					}
 				} else {
-					// Become the master
-					// Note: if the node counts are equal, the node to finish last (i.e. us, here)
-					// becomes the master. This makes things simpler.
-#ifdef DEBUG
-					Serial.print("Received brag - becoming master: (");
-					Serial.print(lastPingCount);
-					Serial.print(",");
-					Serial.print(lastReceivedBrag);
-					Serial.println(")");
-#endif
-					state = MASTER;
-					broadcastClaimMaster();
-				}
-			} else {
-				if (!bragSent) {
-					// Done collecting ping responses
-					broadcastMasterNegotiateAnnounce();
-					bragSent = true;
+					if (!bragSent) {
+						// Done collecting ping responses
+						broadcastMasterNegotiateAnnounce();
+						bragSent = true;
+					}
 				}
 			}
-		}
 
-		// If the timeout expires, become the master and broadcast that we're doing so
-		if (state == MASTER_SELECTION && millis() > (pingStartedTime + MASTER_SEARCH_TIME)) {
+			// If the timeout expires, become the master and broadcast that we're doing so
+			if (state == MASTER_SELECTION && millis() > (pingStartedTime + MASTER_SEARCH_TIME)) {
 #ifdef DEBUG
-			Serial.println("Master search timed out - becoming master.");
-#endif
-			state = MASTER;
-			broadcastClaimMaster();
-		}
-		break;
-	case SLAVE:
-		if (receiveData(&packet) > 0) {
-			switch(packet.data[0]) {
-			case HEARTBEAT:
-				processHeartbeat(packet);
-				slaveLastHeartbeat = millis();
-				break;
-			case PING:
-				respondToPing(packet);
-				break;
-			case UNKNOWN:
-			case PING_RESPONSE:
-			case CLAIM_MASTER:
-			default:
-				break;
-			}
-		} else {
-			if (millis() > slaveLastHeartbeat + SLAVE_TIMEOUT) {
-#ifdef DEBUG
-				Serial.println("No heartbeats - becoming master");
+				Serial.println("Master search timed out - becoming master.");
 #endif
 				state = MASTER;
 				broadcastClaimMaster();
 			}
-		}
-		break;
-	default:
-		break;
-	}
+			break;
+		case SLAVE:
+			if (receiveData(&packet) > 0) {
+				switch(packet.data[0]) {
+				case HEARTBEAT:
+					processHeartbeat(packet);
+					slaveLastHeartbeat = millis();
+					break;
+				case PING:
+					respondToPing(packet);
+					break;
+				case UNKNOWN:
+				case PING_RESPONSE:
+				case CLAIM_MASTER:
+				default:
+					break;
+				}
+			} else {
+				if (millis() > slaveLastHeartbeat + SLAVE_TIMEOUT) {
 #ifdef DEBUG
-	if (state != prevState) {
-		Serial.print("State: ");
-		Serial.print(prevState);
-		Serial.print(" -> ");
-		Serial.println(state);
-		prevState = state;
-	}
+					Serial.println("No heartbeats - becoming master");
 #endif
+					state = MASTER;
+					broadcastClaimMaster();
+				}
+			}
+			break;
+		default:
+			break;
+		}
+#ifdef DEBUG
+		if (state != prevState) {
+			Serial.print("State: ");
+			Serial.print(prevState);
+			Serial.print(" -> ");
+			Serial.println(state);
+			prevState = state;
+		}
+#endif
+	} // must never exit
+}
+
+//The setup function is called once at startup of the sketch
+void setup() {
+	Serial.begin(9600);
+	randomSeed(analogRead(ANALOG_RANDOM_PIN));
+	cc.init();
+	cc.setCarrierFreq(CFREQ_433);
+
+	// Receive packets to all addresses
+	cc.disableAddressCheck();
+
+	// Setup some config values.
+	// 10: clear channel "Unless currently receiving a packet"
+	// 1111: default to RX mode after sending or receiving a packet
+	//cc.writeReg(CC1101_MCSM1, 0b101111);
+	cc.writeReg(CC1101_MCSM1, 0b100000);
+
+	// Go for maximum range
+	cc.setTxPowerAmp(PA_LongDistance);
+
+	cc.setRxState();
+
+	Serial.println("Starting search...");
+	initStarted = millis();
+
+	// TODO: remove this
+	state = MASTER;
+
+	BaseType_t xReturned = xTaskCreate(
+	                    &mainLoop,       /* Function that implements the task. */
+	                    "NAME",          /* Text name for the task. */
+	                    600,      /* Stack size in words, not bytes. */
+	                    0,    /* Parameter passed into the task. */
+	                    tskIDLE_PRIORITY + 1,/* Priority at which the task is created. */
+	                    0 );      /* Used to pass out the created task's handle. */
+
+	Serial.println("Starting scheduler");
+	vTaskStartScheduler();
+}
+
+void loop() {
+	// Unused because of FreeRTOS
 }
