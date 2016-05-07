@@ -22,6 +22,9 @@
 
 #include "FreeRTOS/Arduino_FreeRTOS.h"
 #include "cc1101/cc1101.h"
+#include "queue.h"
+
+#include "Led.h"
 
 #define DEBUG
 
@@ -61,6 +64,7 @@ enum PacketType {
 };
 
 CC1101 cc;
+QueueHandle_t ledQueue;
 
 State state = INIT;
 
@@ -136,30 +140,27 @@ byte receiveData(CCPACKET *packet) {
 	return 0;
 }
 
-
-void writeColor(byte r, byte g, byte b) {
-	analogWrite(LED_R, r);
-	analogWrite(LED_G, g);
-	analogWrite(LED_B, b);
-}
-
-
-// Blinks a heartbeat for a preset amount of time. Blocks for HEARTBEAT_DURATION or so.
+// Blinks a heartbeat for a preset amount of time.
 void processHeartbeat(CCPACKET packet) {
-	writeColor(packet.data[1], packet.data[2], packet.data[3]);
-	vTaskDelay(HEARTBEAT_DURATION_TICKS);
-	writeColor(0, 0, 0);
+	// TODO: actually use the packet
+	static LedMsg onMsg = {255, 255, 255, HEARTBEAT_DURATION_TICKS};
+	static LedMsg offMsg = {0, 0, 0, 1};
+	xQueueSendToBack(ledQueue, &onMsg, 0);
+	xQueueSendToBack(ledQueue, &offMsg, 0);
 }
 
 void processOwnHeartbeat(CCPACKET packet) {
-	writeColor(packet.data[1], packet.data[2], packet.data[3]);
-	vTaskDelay(40);
-	writeColor(0, 0, 0);
-	vTaskDelay(50);
-	writeColor(packet.data[1], packet.data[2], packet.data[3]);
-	vTaskDelay(40);
-	writeColor(0, 0, 0);
+	// TODO: actually use the packet
+	static LedMsg onMsg = {255, 255, 255, 50};
+	static LedMsg offMsg = {0, 0, 0, 50};
+
+	xQueueSendToBack(ledQueue, &onMsg, 0);
+	xQueueSendToBack(ledQueue, &offMsg, 0);
+	xQueueSendToBack(ledQueue, &onMsg, 0);
+	xQueueSendToBack(ledQueue, &offMsg, 0);
 }
+
+CCPACKET toSend;
 
 // Heartbeat packet structure:
 // 0: type (HEARTBEAT)
@@ -167,29 +168,27 @@ void processOwnHeartbeat(CCPACKET packet) {
 // 2: Green intensity
 // 3: Blue intensity
 void broadcastHeartbeat() {
-	CCPACKET heartbeat;
-	heartbeat.length = 4;
-	heartbeat.data[0] = HEARTBEAT;
+	toSend.length = 4;
+	toSend.data[0] = HEARTBEAT;
 
 	// White
-	heartbeat.data[1] = 0xFF;
-	heartbeat.data[2] = 0xFF;
-	heartbeat.data[3] = 0xFF;
+	toSend.data[1] = 0xFF;
+	toSend.data[2] = 0xFF;
+	toSend.data[3] = 0xFF;
 
-	sendData(heartbeat);
+	sendData(toSend);
 	masterLastHeartbeatTime = millis();
 
-	processOwnHeartbeat(heartbeat);
+	processOwnHeartbeat(toSend);
 }
 
 // Causes all other masters in range to become slaves. Structure:
 // 0: type (CLAIM_MASTER)
 void broadcastClaimMaster() {
-	CCPACKET claimMaster;
-	claimMaster.length = 1;
-	claimMaster.data[0] = CLAIM_MASTER;
+	toSend.length = 1;
+	toSend.data[0] = CLAIM_MASTER;
 
-	sendData(claimMaster);
+	sendData(toSend);
 }
 
 // Causes all reachable nodes to respond. Used to identify how many other nodes
@@ -200,14 +199,13 @@ void broadcastClaimMaster() {
 // 1: nonce 0
 // 2: nonce 1
 void broadcastPing() {
-	CCPACKET ping;
-	ping.length = 3;
+	toSend.length = 3;
 
-	ping.data[0] = PING;
-	lastNonceLower = ping.data[1] = random(0xFF);
-	lastNonceUpper = ping.data[2] = random(0xFF);
+	toSend.data[0] = PING;
+	lastNonceLower = toSend.data[1] = random(0xFF);
+	lastNonceUpper = toSend.data[2] = random(0xFF);
 
-	sendData(ping);
+	sendData(toSend);
 
 	pingStartedTime = millis();
 	lastPingCount = 0;
@@ -221,13 +219,12 @@ void broadcastPing() {
 // 1: nonce 0
 // 2: nonce 1
 void respondToPing(CCPACKET originalPing) {
-	CCPACKET pingResponse;
-	pingResponse.length = 3;
-	pingResponse.data[0] = PING_RESPONSE;
-	pingResponse.data[1] = originalPing.data[1];
-	pingResponse.data[2] = originalPing.data[2];
+	toSend.length = 3;
+	toSend.data[0] = PING_RESPONSE;
+	toSend.data[1] = originalPing.data[1];
+	toSend.data[2] = originalPing.data[2];
 
-	sendData(pingResponse);
+	sendData(toSend);
 }
 
 bool isMyPing(CCPACKET pingResponse) {
@@ -240,12 +237,11 @@ bool isMyPing(CCPACKET pingResponse) {
 // 0: type (MASTER_NEGOTIATE_ANNOUNCE)
 // 1: node count
 void broadcastMasterNegotiateAnnounce() {
-	CCPACKET brag;
-	brag.length = 2;
-	brag.data[0] = MASTER_NEGOTIATE_ANNOUNCE;
-	brag.data[1] = lastPingCount;
+	toSend.length = 2;
+	toSend.data[0] = MASTER_NEGOTIATE_ANNOUNCE;
+	toSend.data[1] = lastPingCount;
 
-	sendData(brag);
+	sendData(toSend);
 }
 
 byte getNegotiateAnnounceCount(CCPACKET brag) {
@@ -448,12 +444,14 @@ void mainLoop(void* params) {
 			prevState = state;
 		}
 #endif
+	// Yield to the LED task
+	vTaskDelay(1);
 	} // must never exit
 }
 
 //The setup function is called once at startup of the sketch
 void setup() {
-	Serial.begin(9600);
+	Serial.begin(57600);
 	randomSeed(analogRead(ANALOG_RANDOM_PIN));
 	cc.init();
 	cc.setCarrierFreq(CFREQ_433);
@@ -480,11 +478,28 @@ void setup() {
 
 	BaseType_t xReturned = xTaskCreate(
 	                    &mainLoop,       /* Function that implements the task. */
-	                    "NAME",          /* Text name for the task. */
-	                    600,      /* Stack size in words, not bytes. */
-	                    0,    /* Parameter passed into the task. */
-	                    tskIDLE_PRIORITY + 1,/* Priority at which the task is created. */
-	                    0 );      /* Used to pass out the created task's handle. */
+	                    "MAIN",          /* Text name for the task. */
+	                    200,      /* Stack size in words, not bytes. */
+	                    NULL,    /* Parameter passed into the task. */
+	                    tskIDLE_PRIORITY + 2,/* Priority at which the task is created. */
+	                    NULL );      /* Used to pass out the created task's handle. */
+	if (!xReturned == pdPASS) {
+		Serial.println("Couldn't create main!");
+	}
+
+	ledQueue = xQueueCreate(5, sizeof(LedMsg));
+	Led* led = new Led(ledQueue);
+
+	xReturned = xTaskCreate(
+		                    &(Led::cast),       /* Function that implements the task. */
+		                    "LED",          /* Text name for the task. */
+		                    200,      /* Stack size in words, not bytes. */
+		                    (void*) led,    /* Parameter passed into the task. */
+		                    tskIDLE_PRIORITY + 1,/* Priority at which the task is created. */
+		                    NULL );      /* Used to pass out the created task's handle. */
+	if (!xReturned == pdPASS) {
+		Serial.println("Couldn't create LED!");
+	}
 
 	Serial.println("Starting scheduler");
 	vTaskStartScheduler();

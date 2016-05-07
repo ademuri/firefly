@@ -65,6 +65,7 @@ class Radio:
 			packet = self.read_packet_()
 			if packet is not None:
 				return packet
+		return None
 		
 	def read_packet_(self):
 		read_string = ""
@@ -106,9 +107,9 @@ class Radio:
 		read = self.s.read(self.s.in_waiting)
 		if not str(read[len(read)-1]).isspace():
 			# read until the next space character
-			b = self.s.read(1).decode("ascii")
-			while not (b.isspace() or b is None):
-				b = self.s.read(1).decode("ascii")
+			b = self.s.read(1)
+			while not (b.isspace() or b is None or len(b) is 0):
+				b = self.s.read(1)
 		
 		
 	def send_packet(self, packet):
@@ -233,8 +234,8 @@ class MediumTests(unittest.TestCase):
 		while time.time() < end_time:
 			packet = Packet.generate(PacketType.HEARTBEAT, [255, 255, 255])
 			radio.send_packet(packet)
-			received = radio.read_packet(2)
-			self.assertIsNone(received)
+			received = radio.read_packet(1)
+			self.assertIsNone(received, msg=str(received))
 			time.sleep(0.2)
 			
 		# if we don't heartbeat, it should become master again
@@ -250,38 +251,3 @@ unittest.TextTestRunner(verbosity=2).run(small_suite)
 print("\n\nRunning medium tests...")
 medium_suite = unittest.TestLoader().loadTestsFromTestCase(MediumTests)
 unittest.TextTestRunner(verbosity=2).run(medium_suite)
-
-#packet = Packet.generate(PacketType.HEARTBEAT, [255, 255, 255])
-#radio.send_packet(packet)
-#start_time = time.time()
-
-
-#time.sleep(.1)
-#print("Time: %d" % (time.time() - start_time))
-#packet = Packet.generate(PacketType.MASTER_NEGIOTATE_ANNOUNCE, [3])
-#radio.send_packet(packet)
-
-#time.sleep(.1)
-#print("Time: %d" % (time.time() - start_time))
-#packet = Packet.generate(PacketType.CLAIM_MASTER, [])
-#radio.send_packet(packet)
-
-#time.sleep(.1)
-#print("Time: %d" % (time.time() - start_time))
-#packet = Packet.generate(PacketType.HEARTBEAT, [255, 255, 255])
-#radio.send_packet(packet)
-
-
-# Send a ping
-#packet = Packet.generate(PacketType.PING, [12, 34])
-#radio.send_packet(packet)
-
-#received = radio.read_packet()
-#while True:
-	#if received is not None:
-	#	print("Time: %d" % (time.time() - start_time))
-	#	print("Received: %s" % received)
-	#received = radio.read_packet()
-	#time.sleep(.5)
-	#heartbeat = Packet.generate(PacketType.HEARTBEAT, [10, 10, 10])
-	#radio.send_packet(heartbeat)
