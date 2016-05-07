@@ -26,6 +26,9 @@
 
 #include "../cc1101/nvolat.h"
 
+#include "../FreeRTOS/Arduino_FreeRTOS.h"
+#include "../FreeRTOS/task.h"
+
 //#define RADIO_DEBUG
 
 /**
@@ -81,11 +84,13 @@ void CC1101::wakeUp(void)
  */
 void CC1101::writeReg(byte regAddr, byte value) 
 {
+	taskENTER_CRITICAL();
   cc1101_Select();                      // Select CC1101
   wait_Miso();                          // Wait until MISO goes low
   spi.send(regAddr);                    // Send register address
   spi.send(value);                      // Send value
   cc1101_Deselect();                    // Deselect CC1101
+  taskEXIT_CRITICAL();
 }
 
 /**
@@ -101,6 +106,7 @@ void CC1101::writeBurstReg(byte regAddr, byte* buffer, byte len)
 {
   byte addr, i;
   
+  taskENTER_CRITICAL();
   addr = regAddr | WRITE_BURST;         // Enable burst transfer
   cc1101_Select();                      // Select CC1101
   wait_Miso();                          // Wait until MISO goes low
@@ -109,7 +115,8 @@ void CC1101::writeBurstReg(byte regAddr, byte* buffer, byte len)
   for(i=0 ; i<len ; i++)
     spi.send(buffer[i]);                // Send value
 
-  cc1101_Deselect();                    // Deselect CC1101  
+  cc1101_Deselect();                    // Deselect CC1101
+  taskEXIT_CRITICAL();
 }
 
 /**
@@ -121,10 +128,12 @@ void CC1101::writeBurstReg(byte regAddr, byte* buffer, byte len)
  */     
 void CC1101::cmdStrobe(byte cmd) 
 {
+	taskENTER_CRITICAL();
   cc1101_Select();                      // Select CC1101
   wait_Miso();                          // Wait until MISO goes low
   spi.send(cmd);                        // Send strobe command
   cc1101_Deselect();                    // Deselect CC1101
+  taskEXIT_CRITICAL();
 }
 
 /**
@@ -142,12 +151,14 @@ byte CC1101::readReg(byte regAddr, byte regType)
 {
   byte addr, val;
 
+  taskENTER_CRITICAL();
   addr = regAddr | regType;
   cc1101_Select();                      // Select CC1101
   wait_Miso();                          // Wait until MISO goes low
   spi.send(addr);                       // Send register address
   val = spi.send(0x00);                 // Read result
   cc1101_Deselect();                    // Deselect CC1101
+  taskEXIT_CRITICAL();
 
   return val;
 }
@@ -165,6 +176,7 @@ void CC1101::readBurstReg(byte * buffer, byte regAddr, byte len)
 {
   byte addr, i;
   
+  taskENTER_CRITICAL();
   addr = regAddr | READ_BURST;
   cc1101_Select();                      // Select CC1101
   wait_Miso();                          // Wait until MISO goes low
@@ -172,6 +184,7 @@ void CC1101::readBurstReg(byte * buffer, byte regAddr, byte len)
   for(i=0 ; i<len ; i++)
     buffer[i] = spi.send(0x00);         // Read result byte by byte
   cc1101_Deselect();                    // Deselect CC1101
+  taskEXIT_CRITICAL();
 }
 
 /**
@@ -181,6 +194,7 @@ void CC1101::readBurstReg(byte * buffer, byte regAddr, byte len)
  */
 void CC1101::reset(void) 
 {
+	taskENTER_CRITICAL();
   cc1101_Deselect();                    // Deselect CC1101
   delayMicroseconds(5);
   cc1101_Select();                      // Select CC1101
@@ -194,6 +208,7 @@ void CC1101::reset(void)
   wait_Miso();                          // Wait until MISO goes low
 
   cc1101_Deselect();                    // Deselect CC1101
+  taskEXIT_CRITICAL();
 
   setDefaultRegs();                     // Reconfigure CC1101
   setRegsFromEeprom();                  // Take user settings from EEPROM
@@ -272,6 +287,7 @@ void CC1101::init(void)
   //spi.setClockDivider(SPI_CLOCK_DIV16);
   //spi.setBitOrder(MSBFIRST);
   pinMode(GDO0, INPUT);                 // Config GDO0 as input
+  pinMode(GDO2, INPUT);                 // Config GDO0 as input
 
   reset();                              // Reset CC1101
 
@@ -458,6 +474,7 @@ boolean CC1101::sendData(CCPACKET packet)
 Serial.println();
 #endif
  
+	taskENTER_CRITICAL();
   // Declare to be in Tx state. This will avoid receiving packets whilst
   // transmitting
   rfState = RFSTATE_TX;
@@ -496,6 +513,7 @@ Serial.println();
 
     // Declare to be in Rx state
     rfState = RFSTATE_RX;
+    taskEXIT_CRITICAL();
     return false;
   }
 
@@ -517,6 +535,7 @@ Serial.println();
 
   // Declare to be in Rx state
   rfState = RFSTATE_RX;
+  taskEXIT_CRITICAL();
 
 #ifdef RADIO_DEBUG
   if (!res) {
@@ -543,6 +562,8 @@ byte CC1101::receiveData(CCPACKET * packet)
   if (!digitalRead(GDO2)) {
 	  return 0;
   }
+
+  taskENTER_CRITICAL();
   byte rxBytes = readStatusReg(CC1101_RXBYTES);
 
   // Any byte waiting to be read and no overflow?
@@ -574,6 +595,7 @@ byte CC1101::receiveData(CCPACKET * packet)
 
   // Back to RX state
   setRxState();
+  taskEXIT_CRITICAL();
 
 #ifdef RADIO_DEBUG
   if (packet->length > 0) {

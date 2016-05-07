@@ -54,7 +54,7 @@ class Packet:
 		
 class Radio:
 	def __init__(self, port):
-		self.s = serial.Serial(port, 9600, timeout=0.1)
+		self.s = serial.Serial(port, 57600, timeout=0.05)
 		self.last_packet = None
 		self.packet_log = []
 	
@@ -175,14 +175,14 @@ class MediumTests(unittest.TestCase):
 		heartbeat = Packet.generate(PacketType.HEARTBEAT, [255, 255, 255])
 		radio.send_packet(heartbeat)
 		
-		ping = radio.read_packet_swallow_heartbeat(10)
+		ping = radio.read_packet_swallow_heartbeat(1)
 		self.assertIsNotNone(ping)
 		self.assertEqual(ping.type, PacketType.PING)
 		
 		ping_response = Packet.generate(PacketType.PING_RESPONSE, ping.payload)
 		radio.send_packet(ping_response)
 		
-		received = radio.read_packet_swallow_heartbeat(10)
+		received = radio.read_packet_swallow_heartbeat(3)
 		self.assertIsNotNone(received)
 		self.assertEqual(received.type, PacketType.MASTER_NEGOTIATE_ANNOUNCE)
 		self.assertEqual(received.payload, [1])
@@ -204,6 +204,10 @@ class MediumTests(unittest.TestCase):
 		self.assertIsNotNone(received)
 		self.assertEqual(received.type, PacketType.MASTER_NEGOTIATE_ANNOUNCE)
 		self.assertEqual(received.payload, [2])
+		
+		received = radio.read_packet_swallow_heartbeat(2)
+		self.assertIsNotNone(received)
+		self.assertEqual(received.type, PacketType.CLAIM_MASTER)
 		
 		received = radio.read_packet(10)
 		self.assertIsNotNone(received)

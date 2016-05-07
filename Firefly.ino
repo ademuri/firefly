@@ -26,26 +26,22 @@
 
 #include "Led.h"
 
-#define DEBUG
+//#define DEBUG
 
 // Use an unconnected analog pin to seed the random number generator
 #define ANALOG_RANDOM_PIN 1
-#define LED_R 3 // ATMega328P pin 5
-#define LED_G 5 // ATMega328P pin 11
-#define LED_B 6 // ATMega328P pin 12
 
-
-const unsigned long INIT_SEARCH_TIME_MILLIS = 5000;
-const unsigned long MASTER_HEARTBEAT_INTERVAL = 1000;
+const unsigned long INIT_SEARCH_TIME_MILLIS = 2000;
+const unsigned long MASTER_HEARTBEAT_INTERVAL = 800;
 const unsigned long HEARTBEAT_DURATION = 100;
-const unsigned long MASTER_SEARCH_TIME = 2000;
-const unsigned long PING_WAIT = 1000;
+const unsigned long MASTER_SEARCH_TIME = 200;
+const unsigned long PING_WAIT = 50;
 
 // Convert the constants above to ticks
 const unsigned long HEARTBEAT_DURATION_TICKS = HEARTBEAT_DURATION / portTICK_PERIOD_MS;
 
 // How long in slave mode without any heartbeats before becoming a master
-const unsigned long SLAVE_TIMEOUT = 5000;
+const unsigned long SLAVE_TIMEOUT = 2000;
 
 enum State {
 	INIT,
@@ -111,9 +107,6 @@ void sendData(CCPACKET packet) {
 byte receiveData(CCPACKET *packet) {
 	if (cc.receiveData(packet) > 0) {
 		if (packet->length < 2) {
-#ifdef DEBUG
-			Serial.println("Invalid packet!");
-#endif
 			return 0;
 		}
 		byte origLength = packet->length - 2;
@@ -125,13 +118,13 @@ byte receiveData(CCPACKET *packet) {
 
 #ifdef DEBUG
 			// Dump the packet
-			for (int i=0; i<packet->length; i++) {
-				Serial.print(packet->data[i], DEC);
-				if (i<packet->length-1) {
-					Serial.print(",");
-				}
-			}
-			Serial.println();
+//			for (int i=0; i<packet->length; i++) {
+//				Serial.print(packet->data[i], DEC);
+//				if (i<packet->length-1) {
+//					Serial.print(",");
+//				}
+//			}
+//			Serial.println();
 #endif
 
 			return packet->length;
@@ -143,7 +136,7 @@ byte receiveData(CCPACKET *packet) {
 // Blinks a heartbeat for a preset amount of time.
 void processHeartbeat(CCPACKET packet) {
 	// TODO: actually use the packet
-	static LedMsg onMsg = {255, 255, 255, HEARTBEAT_DURATION_TICKS};
+	static LedMsg onMsg = {255, 255, 255, 100};
 	static LedMsg offMsg = {0, 0, 0, 1};
 	xQueueSendToBack(ledQueue, &onMsg, 0);
 	xQueueSendToBack(ledQueue, &offMsg, 0);
@@ -253,7 +246,21 @@ State prevState = INIT;
 
 // The loop function is called in an endless loop
 void mainLoop(void* params) {
+	Serial.println("done.");
+
 	while (1) {
+//		timing[timeIndex] = millis();
+//		timeIndex++;
+//		if (timeIndex > 19) {
+//			timeIndex = 0;
+//			Serial.print("Timing: ");
+//			for (byte i=1; i<19; i++) {
+//				Serial.print(timing[i] - timing[i-1], DEC);
+//				Serial.print(", ");
+//			}
+//			Serial.println();
+//		}
+
 		switch (state) {
 		case INIT:
 			if (receiveData(&packet) > 0) {
@@ -280,7 +287,7 @@ void mainLoop(void* params) {
 			}
 			if (millis() > (initStarted + INIT_SEARCH_TIME_MILLIS)) {
 #ifdef DEBUG
-				Serial.println("No packets received - becoming master.");
+				Serial.println("No packets received");
 #endif
 				state = MASTER;
 				broadcastClaimMaster();
@@ -302,11 +309,17 @@ void mainLoop(void* params) {
 				case PING:
 					respondToPing(packet);
 					break;
+				case CLAIM_MASTER:
+					state = SLAVE;
+					slaveLastHeartbeat = millis();
+#ifdef DEBUG
+					Serial.println("CLAIM_MASTER received");
+#endif
+					break;
 				case PING_RESPONSE:
 					// If we're not doing master selection, we don't care about ping responses, so
 					// ignore this.
 				case UNKNOWN:
-				case CLAIM_MASTER:
 				case MASTER_NEGOTIATE_ANNOUNCE:
 					// This case means we have two masters, but we want the timings to line up, so
 					// wait for a heartbeat to start master selection.
@@ -379,11 +392,7 @@ void mainLoop(void* params) {
 						// Note: if the node counts are equal, the node to finish last (i.e. us, here)
 						// becomes the master. This makes things simpler.
 #ifdef DEBUG
-						Serial.print("Received brag - becoming master: (");
-						Serial.print(lastPingCount);
-						Serial.print(",");
-						Serial.print(lastReceivedBrag);
-						Serial.println(")");
+						Serial.print("Received brag - becoming master");
 #endif
 						state = MASTER;
 						broadcastClaimMaster();
@@ -398,9 +407,9 @@ void mainLoop(void* params) {
 			}
 
 			// If the timeout expires, become the master and broadcast that we're doing so
-			if (state == MASTER_SELECTION && millis() > (pingStartedTime + MASTER_SEARCH_TIME)) {
+			if (state == MASTER_SELECTION && (millis() > (pingStartedTime + MASTER_SEARCH_TIME))) {
 #ifdef DEBUG
-				Serial.println("Master search timed out - becoming master.");
+				Serial.println("Master search timed out");
 #endif
 				state = MASTER;
 				broadcastClaimMaster();
@@ -444,8 +453,6 @@ void mainLoop(void* params) {
 			prevState = state;
 		}
 #endif
-	// Yield to the LED task
-	vTaskDelay(1);
 	} // must never exit
 }
 
@@ -470,7 +477,7 @@ void setup() {
 
 	cc.setRxState();
 
-	Serial.println("Starting search...");
+	Serial.println("Starting... ");
 	initStarted = millis();
 
 	// TODO: remove this
@@ -479,9 +486,9 @@ void setup() {
 	BaseType_t xReturned = xTaskCreate(
 	                    &mainLoop,       /* Function that implements the task. */
 	                    "MAIN",          /* Text name for the task. */
-	                    200,      /* Stack size in words, not bytes. */
+	                    256,      /* Stack size in words, not bytes. */
 	                    NULL,    /* Parameter passed into the task. */
-	                    tskIDLE_PRIORITY + 2,/* Priority at which the task is created. */
+	                    tskIDLE_PRIORITY + 1,/* Priority at which the task is created. */
 	                    NULL );      /* Used to pass out the created task's handle. */
 	if (!xReturned == pdPASS) {
 		Serial.println("Couldn't create main!");
@@ -493,15 +500,15 @@ void setup() {
 	xReturned = xTaskCreate(
 		                    &(Led::cast),       /* Function that implements the task. */
 		                    "LED",          /* Text name for the task. */
-		                    200,      /* Stack size in words, not bytes. */
+		                    110,      /* Stack size in words, not bytes. */
 		                    (void*) led,    /* Parameter passed into the task. */
-		                    tskIDLE_PRIORITY + 1,/* Priority at which the task is created. */
+		                    tskIDLE_PRIORITY + 2,/* Priority at which the task is created. */
 		                    NULL );      /* Used to pass out the created task's handle. */
 	if (!xReturned == pdPASS) {
 		Serial.println("Couldn't create LED!");
 	}
 
-	Serial.println("Starting scheduler");
+	//Serial.println("Starting scheduler");
 	vTaskStartScheduler();
 }
 
