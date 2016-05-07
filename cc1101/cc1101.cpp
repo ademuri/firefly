@@ -26,8 +26,8 @@
 
 #include "../cc1101/nvolat.h"
 
-#include "../FreeRTOS/Arduino_FreeRTOS.h"
-#include "../FreeRTOS/task.h"
+#include "Arduino_FreeRTOS.h"
+#include "task.h"
 
 //#define RADIO_DEBUG
 

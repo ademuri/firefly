@@ -20,7 +20,7 @@
 
 #include "Arduino.h"
 
-#include "FreeRTOS/Arduino_FreeRTOS.h"
+#include "Arduino_FreeRTOS.h"
 #include "cc1101/cc1101.h"
 #include "queue.h"
 
@@ -348,9 +348,9 @@ void mainLoop(void* params) {
 					// Note: we don't check whether the PING_WAIT time has expired here - we assume that
 					// this loop is fast and it will get picked up below
 					if (isMyPing(packet)) {
+						lastPingCount++;
 #ifdef DEBUG
 						Serial.print("Received ping: ");
-						lastPingCount++;
 						Serial.println(lastPingCount, DEC);
 #endif
 					}
