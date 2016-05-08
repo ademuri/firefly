@@ -144,11 +144,8 @@ void processHeartbeat(CCPACKET packet) {
 
 void processOwnHeartbeat(CCPACKET packet) {
 	// TODO: actually use the packet
-	static LedMsg onMsg = {255, 255, 255, 50};
-	static LedMsg offMsg = {0, 0, 0, 50};
-
-	xQueueSendToBack(ledQueue, &onMsg, 0);
-	xQueueSendToBack(ledQueue, &offMsg, 0);
+	static LedMsg onMsg = {127, 127, 127, 100};
+	static LedMsg offMsg = {0, 0, 0, 1};
 	xQueueSendToBack(ledQueue, &onMsg, 0);
 	xQueueSendToBack(ledQueue, &offMsg, 0);
 }
