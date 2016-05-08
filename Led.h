@@ -11,8 +11,8 @@
 
 #include "Arduino.h"
 
-#include "FreeRTOS/Arduino_FreeRTOS.h"
-#include "FreeRTOS/queue.h"
+#include "Arduino_FreeRTOS.h"
+#include "queue.h"
 
 //#define LED_R 3 // ATMega328P pin 5
 //#define LED_G 5 // ATMega328P pin 11
@@ -37,9 +37,15 @@ public:
 	 */
 	void taskFunc();
 
-	static void cast(void *params);
-
+	/**
+	 * Gamma-corrects the given color and writes it out to the LED.
+	 */
 	void writeColor(byte r, byte g, byte b);
+
+	/**
+	 * Glue for FreeRTOS.
+	 */
+	static void cast(void *params);
 };
 
 
