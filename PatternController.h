@@ -15,6 +15,7 @@
 enum Pattern {
 	OFF,
 	BLINK_ONCE,
+	BLINK_TWICE,
 	SIMPLE_BLINK,	// On and off repeatedly
 };
 

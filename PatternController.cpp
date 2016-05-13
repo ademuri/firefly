@@ -55,6 +55,14 @@ void PatternController::taskFunc() {
 			this->currentPattern = OFF;
 			break;
 
+		case BLINK_TWICE:
+			xQueueSendToBack(ledQueue, &onMsg, 0);
+			xQueueSendToBack(ledQueue, &offMsg, 0);
+			xQueueSendToBack(ledQueue, &onMsg, 0);
+			xQueueSendToBack(ledQueue, &offMsg, 0);
+			this->currentPattern = OFF;
+			break;
+
 		case SIMPLE_BLINK:
 			while (!this->taskChanged) {
 				xQueueSendToBack(ledQueue, &onMsg, portMAX_DELAY);
