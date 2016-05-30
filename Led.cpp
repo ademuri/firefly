@@ -12,6 +12,7 @@
 #define LED_R 3 // ATMega328P pin 5
 #define LED_G 5 // ATMega328P pin 11
 #define LED_B 6 // ATMega328P pin 12
+//#define LED_B 8 // pin 14
 
 // Gamma curve for LED brightness, so that e.g. 127 is half-brightness.
 // See https://learn.adafruit.com/led-tricks-gamma-correction

@@ -96,7 +96,7 @@
 #define configMAX_TASK_NAME_LEN		    ( 8 )
 
 /* Timer definitions. */
-#define configUSE_TIMERS				1
+#define configUSE_TIMERS				0
 #define configTIMER_TASK_PRIORITY       ( ( UBaseType_t ) 7 )
 #define configTIMER_QUEUE_LENGTH        ( ( UBaseType_t ) 10 )
 #define configTIMER_TASK_STACK_DEPTH    configMINIMAL_STACK_SIZE

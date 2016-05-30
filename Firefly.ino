@@ -24,10 +24,21 @@
 #include "cc1101/cc1101.h"
 #include "queue.h"
 
+#include "BeatDetector.h"
 #include "Led.h"
 #include "PatternController.h"
 
+// defines for setting and clearing register bits
+#ifndef cbi
+#define cbi(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit))
+#endif
+#ifndef sbi
+#define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))
+#endif
+
 //#define DEBUG_STATE
+
+#define DEBUG
 
 // Use an unconnected analog pin to seed the random number generator
 #define ANALOG_RANDOM_PIN 1
@@ -127,12 +138,13 @@ byte receiveData(CCPACKET *packet) {
 // Blinks a heartbeat for a preset amount of time.
 void processHeartbeat(CCPACKET packet) {
 	// TODO: actually use the packet
-	ctrl->setPattern((Pattern)packet.data[1], 255);
+	ctrl->setPattern((Pattern)packet.data[1], 127);
 }
 
 void processOwnHeartbeat(CCPACKET packet) {
 	// TODO: actually use the packet
-	ctrl->setPattern((Pattern)packet.data[1], 127);
+	//ctrl->setPattern((Pattern)packet.data[1], 127);
+	ctrl->setPattern(BLINK_TWICE, 63);
 }
 
 CCPACKET toSend;
@@ -447,6 +459,12 @@ void mainLoop(void* params) {
 void setup() {
 	Serial.begin(57600);
 	randomSeed(analogRead(ANALOG_RANDOM_PIN));
+
+	// Set ADC to 77khz, max for 10bit
+	sbi(ADCSRA,ADPS2);
+	cbi(ADCSRA,ADPS1);
+	cbi(ADCSRA,ADPS0);
+
 	cc.init();
 	cc.setCarrierFreq(CFREQ_433);
 
@@ -468,7 +486,7 @@ void setup() {
 	initStarted = millis();
 
 	// TODO: remove this
-	state = MASTER;
+	//state = MASTER;
 
 	BaseType_t xReturned = xTaskCreate(
 	                    &mainLoop,       /* Function that implements the task. */
@@ -477,9 +495,11 @@ void setup() {
 	                    NULL,    /* Parameter passed into the task. */
 	                    1,/* Priority at which the task is created. */
 	                    NULL );      /* Used to pass out the created task's handle. */
+#ifdef DEBUG
 	if (!xReturned == pdPASS) {
 		Serial.println("main");
 	}
+#endif
 
 	ledQueue = xQueueCreate(5, sizeof(LedMsg));
 	Led* led = new Led(ledQueue);
@@ -487,30 +507,51 @@ void setup() {
 	xReturned = xTaskCreate(
 			&(Led::cast),       /* Function that implements the task. */
 			"LED",          /* Text name for the task. */
-			110,      /* Stack size in words, not bytes. */
+			85,      /* Stack size in words, not bytes. */
 			(void*) led,    /* Parameter passed into the task. */
 			2,/* Priority at which the task is created. */
 			NULL );      /* Used to pass out the created task's handle. */
+#ifdef DEBUG
 	if (!xReturned == pdPASS) {
 		Serial.println("LED");
 	}
+#endif
 
 	ctrl = new PatternController(ledQueue);
 
 	xReturned = xTaskCreate(
 			&(PatternController::cast),       /* Function that implements the task. */
 			"CTRL",          /* Text name for the task. */
-			200,      /* Stack size in words, not bytes. */
+			150,      /* Stack size in words, not bytes. */
 			(void*) ctrl,    /* Parameter passed into the task. */
 			2,/* Priority at which the task is created. */
 			NULL );      /* Used to pass out the created task's handle. */
+#ifdef DEBUG
 	if (!xReturned == pdPASS) {
-			Serial.println("ctrl");
-		}
+		Serial.println("ctrl");
+	}
+#endif
+
+	BeatDetector* beat = new BeatDetector();
+	xReturned = xTaskCreate(
+			&(BeatDetector::cast),       /* Function that implements the task. */
+			"BEAT",          /* Text name for the task. */
+			150,      /* Stack size in words, not bytes. */
+			(void*) beat,    /* Parameter passed into the task. */
+			3,/* Priority at which the task is created. */
+			NULL );      /* Used to pass out the created task's handle. */
+
 
 	//Serial.println("Starting scheduler");
 	vTaskStartScheduler();
 }
+
+// Called if a stack overflow is detected
+#ifdef DEBUG
+void vApplicationStackOverflowHook( TaskHandle_t xTask, portCHAR *pcTaskName ) {
+	Serial.println("overflow");
+}
+#endif // DEBUG
 
 void loop() {
 	// Unused because of FreeRTOS
