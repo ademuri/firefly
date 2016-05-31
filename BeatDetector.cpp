@@ -36,9 +36,9 @@ float beatFilter(float sample) {
 	static float v[3] = {0, 0, 0};
 	v[0] = v[1];
 				v[1] = v[2];
-				v[2] = (1.425578634058458360e-1 * sample)
-					 + (-0.71698617409790299515 * v[0])
-					 + (1.44536535009277544717 * v[1]);
+				v[2] = (8.179212904903934711e-3 * sample)
+					 + (-0.98379571669365140085 * v[0])
+					 + (1.98299691795931032345 * v[1]);
 				return
 					 (v[2] - v[0]);
 }
@@ -51,10 +51,17 @@ void BeatDetector::cast(void* param) {
 	((BeatDetector*)param)->taskFunc();
 }
 
+extern boolean beatDetected;
+
 void BeatDetector::taskFunc() {
 	TickType_t xLastWakeTime = xTaskGetTickCount();
 	float sample, value, envelope, beat;
-	const float thresh = 0.5f;
+	const float thresh = 1.0f;
+
+	const long DEBOUNCE_MS = 200; // at 180bpm there'll be 330ms between beats
+	unsigned long prevHighAt = 0;
+	bool prevState = LOW;
+
 	while(1) {
 		for (byte i=0;; i++) {
 			// Read ADC and center so +-512
@@ -64,19 +71,27 @@ void BeatDetector::taskFunc() {
 			value = bassFilter(sample);
 
 			// Take signal amplitude and filter
-			if(value < 0)value=-value;
+			if (value < 0) {
+				value = -value;
+			}
 			envelope = envelopeFilter(value);
 
-			if(i == 20) {
-				// Filter out repeating bass sounds 100 - 180bpm
-				beat = beatFilter(envelope);
+			// Find repeating bass sounds 100 - 180bpm
+			beat = beatFilter(envelope);
+			if (beat > thresh) {
+				digitalWrite(8, HIGH);
 
-				if (beat > thresh) {
-					digitalWrite(8, HIGH);
-				} else {
-					digitalWrite(8, LOW);
+				if (prevState == LOW && (millis() > (prevHighAt + DEBOUNCE_MS))) {
+					beatDetected = true;
+					prevState = HIGH;
+					prevHighAt = millis();
 				}
-				i = 0;
+			} else {
+				digitalWrite(8, LOW);
+
+				if (millis() > prevHighAt + DEBOUNCE_MS) {
+					prevState = LOW;
+				}
 			}
 
 			// Maintain fixed sample frequency

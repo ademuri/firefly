@@ -45,6 +45,9 @@
 
 const unsigned long INIT_SEARCH_TIME_MILLIS = 2000;
 const unsigned long MASTER_HEARTBEAT_INTERVAL = 800;
+
+// How long to wait for a beat before resuming steady beats
+const unsigned long BEAT_HEARTBEAT_INTERVAL = 1500;
 const unsigned long HEARTBEAT_DURATION = 100;
 const unsigned long MASTER_SEARCH_TIME = 200;
 const unsigned long PING_WAIT = 50;
@@ -74,6 +77,10 @@ enum PacketType {
 CC1101 cc;
 QueueHandle_t ledQueue;
 PatternController* ctrl;
+TaskHandle_t beatTask;
+
+// Tells us that a beat was detected and we should broadcast a heartbeat
+boolean beatDetected = false;
 
 State state = INIT;
 
@@ -84,7 +91,7 @@ State state = INIT;
 unsigned long initStarted = 0;
 
 // In the master state, millis since we last broadcast a heartbeat
-unsigned long masterLastHeartbeatTime = 0;
+unsigned long masterNextHeartbeatTime = 0;
 
 unsigned long slaveLastHeartbeat = 0;
 
@@ -144,7 +151,7 @@ void processHeartbeat(CCPACKET packet) {
 void processOwnHeartbeat(CCPACKET packet) {
 	// TODO: actually use the packet
 	//ctrl->setPattern((Pattern)packet.data[1], 127);
-	ctrl->setPattern(BLINK_TWICE, 63);
+	ctrl->setPattern(BLINK_ONCE, 63);
 }
 
 CCPACKET toSend;
@@ -156,6 +163,12 @@ CCPACKET toSend;
 // 3: Green intensity
 // 4: Blue intensity
 void broadcastHeartbeat() {
+	if (beatDetected) {
+		masterNextHeartbeatTime = millis() + BEAT_HEARTBEAT_INTERVAL;
+	} else {
+		masterNextHeartbeatTime = millis() + MASTER_HEARTBEAT_INTERVAL;
+	}
+	beatDetected = false;
 	toSend.length = 5;
 	toSend.data[0] = HEARTBEAT;
 
@@ -169,7 +182,6 @@ void broadcastHeartbeat() {
 	toSend.data[4] = 0xFF;
 
 	sendData(toSend);
-	masterLastHeartbeatTime = millis();
 
 	processOwnHeartbeat(toSend);
 }
@@ -236,6 +248,24 @@ void broadcastMasterNegotiateAnnounce() {
 	sendData(toSend);
 }
 
+/**
+ * Become master. Sets the state, broadcasts a claim master, and turns on beat detection.
+ */
+void becomeMaster() {
+	state = MASTER;
+	broadcastClaimMaster();
+	vTaskResume(beatTask);
+}
+
+/**
+ * Become slave.
+ */
+void becomeSlave() {
+	state = SLAVE;
+	slaveLastHeartbeat = millis();
+	vTaskSuspend(beatTask);
+}
+
 byte getNegotiateAnnounceCount(CCPACKET brag) {
 	return brag.data[1];
 }
@@ -288,14 +318,13 @@ void mainLoop(void* params) {
 #ifdef DEBUG_STATE
 				Serial.println("No packets received");
 #endif
-				state = MASTER;
-				broadcastClaimMaster();
+				becomeMaster();
 				broadcastHeartbeat();
 			}
 			break;
 
 		case MASTER:
-			if (millis() > (masterLastHeartbeatTime + MASTER_HEARTBEAT_INTERVAL)) {
+			if (beatDetected || millis() > masterNextHeartbeatTime) {
 				broadcastHeartbeat();
 			}
 			if (receiveData(&packet) > 0) {
@@ -309,8 +338,7 @@ void mainLoop(void* params) {
 					respondToPing(packet);
 					break;
 				case CLAIM_MASTER:
-					state = SLAVE;
-					slaveLastHeartbeat = millis();
+					becomeSlave();
 #ifdef DEBUG_STATE
 					Serial.println("CLAIM_MASTER received");
 #endif
@@ -337,8 +365,7 @@ void mainLoop(void* params) {
 #ifdef DEBUG_STATE
 					Serial.println("CLAIM_MASTER received, becoming slave");
 #endif
-					state = SLAVE;
-					slaveLastHeartbeat = millis();
+					becomeSlave();
 					break;
 				case PING:
 					respondToPing(packet);
@@ -372,7 +399,7 @@ void mainLoop(void* params) {
 			}
 
 			// Still do the heartbeat when negotiating for a single master
-			if (millis() > (masterLastHeartbeatTime + MASTER_HEARTBEAT_INTERVAL)) {
+			if (beatDetected || millis() > masterNextHeartbeatTime) {
 				broadcastHeartbeat();
 			}
 
@@ -384,8 +411,7 @@ void mainLoop(void* params) {
 #ifdef DEBUG_STATE
 						Serial.println("Received brag - becoming slave");
 #endif
-						state = SLAVE;
-						slaveLastHeartbeat = millis();
+						becomeSlave();
 					} else {
 						// Become the master
 						// Note: if the node counts are equal, the node to finish last (i.e. us, here)
@@ -393,8 +419,7 @@ void mainLoop(void* params) {
 #ifdef DEBUG_STATE
 						Serial.print("Received brag - becoming master");
 #endif
-						state = MASTER;
-						broadcastClaimMaster();
+						becomeMaster();
 					}
 				} else {
 					if (!bragSent) {
@@ -410,8 +435,7 @@ void mainLoop(void* params) {
 #ifdef DEBUG_STATE
 				Serial.println("Master search timed out");
 #endif
-				state = MASTER;
-				broadcastClaimMaster();
+				becomeMaster();
 			}
 			break;
 		case SLAVE:
@@ -435,8 +459,7 @@ void mainLoop(void* params) {
 #ifdef DEBUG_STATE
 					Serial.println("No heartbeats - becoming master");
 #endif
-					state = MASTER;
-					broadcastClaimMaster();
+					becomeMaster();
 				}
 			}
 			break;
@@ -539,10 +562,13 @@ void setup() {
 			150,      /* Stack size in words, not bytes. */
 			(void*) beat,    /* Parameter passed into the task. */
 			3,/* Priority at which the task is created. */
-			NULL );      /* Used to pass out the created task's handle. */
+			&beatTask );      /* Used to pass out the created task's handle. */
 
+	// beatTask gets resumed when we become master
+	vTaskSuspend(beatTask);
 
 	//Serial.println("Starting scheduler");
+
 	vTaskStartScheduler();
 }
 
