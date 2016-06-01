@@ -58,6 +58,13 @@ const unsigned long HEARTBEAT_DURATION_TICKS = HEARTBEAT_DURATION / portTICK_PER
 // How long in slave mode without any heartbeats before becoming a master
 const unsigned long SLAVE_TIMEOUT = 2000;
 
+// Min and max times between color changes
+const unsigned long COLOR_CHANGE_MIN = 4000;
+const unsigned long COLOR_CHANGE_MAX = 60000;
+
+// When generating a random color, the minimum (sum) brightness of the colors allowed.
+const unsigned long MIN_BRIGHTNESS = 60;
+
 enum State {
 	INIT,
 	SLAVE,
@@ -97,6 +104,11 @@ unsigned long initStarted = 0;
 // In the master state, millis since we last broadcast a heartbeat
 unsigned long masterNextHeartbeatTime = 0;
 
+// When we're a master, the time when we'll next change the heartbeat color.
+unsigned long nextColorChange = 0;
+
+// When we're a slave, the last time we received a heartbeat. If we don't receive one for long
+// enough, we'll become master.
 unsigned long slaveLastHeartbeat = 0;
 
 
@@ -164,6 +176,15 @@ byte heartbeatR = 63;
 byte heartbeatG = 63;
 byte heartbeatB = 63;
 
+void setHeartbeatColor() {
+	do {
+		heartbeatR = random(63);
+		heartbeatG = random(63);
+		heartbeatB = random(63);
+	} while (heartbeatR + heartbeatG + heartbeatB < MIN_BRIGHTNESS);
+	nextColorChange = millis() + random(COLOR_CHANGE_MIN, COLOR_CHANGE_MAX);
+}
+
 // Heartbeat packet structure:
 // 0: type (HEARTBEAT)
 // 1: Pattern
@@ -173,18 +194,14 @@ byte heartbeatB = 63;
 void broadcastHeartbeat() {
 	if (beatDetected) {
 		masterNextHeartbeatTime = millis() + BEAT_HEARTBEAT_INTERVAL;
-		if (!onBeat) {
-			heartbeatR = random(63);
-			heartbeatG = random(63);
-			heartbeatB = random(63);
+		if (!onBeat || millis() > nextColorChange) {
+			setHeartbeatColor();
 			onBeat = true;
 		}
 	} else {
 		masterNextHeartbeatTime = millis() + MASTER_HEARTBEAT_INTERVAL;
-		if (onBeat) {
-			heartbeatR = random(63);
-			heartbeatG = random(63);
-			heartbeatB = random(63);
+		if (onBeat || millis() > nextColorChange) {
+			setHeartbeatColor();
 			onBeat = false;
 		}
 	}
@@ -275,6 +292,7 @@ void becomeMaster() {
 	state = MASTER;
 	broadcastClaimMaster();
 	vTaskResume(beatTask);
+	nextColorChange = millis() + random(COLOR_CHANGE_MIN, COLOR_CHANGE_MAX);
 }
 
 /**
