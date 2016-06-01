@@ -53,14 +53,35 @@ void BeatDetector::cast(void* param) {
 
 extern boolean beatDetected;
 
+// Minimum threshold. Higher values reject more noise, at the expense of ignoring valid beats.
+const float MIN_THRESH = 0.1f;
+// Maximum threshold. Lower values prevent noise from spiking the threshold. Higher values allow
+// more dynamic range.
+const float MAX_THRESH = 10.f;
+// The amount that the threshold decays per cycle. The sampling code (and thus the decay) runs
+// at 500hz.
+const float THRESH_DECAY = .001f;
+// What ratio of the peak incoming level to set the threshold to.
+const float THRESH_RATIO = 0.7f;
+
 void BeatDetector::taskFunc() {
 	TickType_t xLastWakeTime = xTaskGetTickCount();
 	float sample, value, envelope, beat;
-	const float thresh = 1.0f;
+	float thresh = MIN_THRESH;
 
 	const long DEBOUNCE_MS = 200; // at 180bpm there'll be 330ms between beats
 	unsigned long prevHighAt = 0;
 	bool prevState = LOW;
+
+	// There's a brief spike in the filtered signal. Run through the sampling for a little while
+	// to initialize the filter state.
+	for (int i = 0; i < 300; i++) {
+		sample = (float)analogRead(INPUT_PIN)-503.f;
+		value = bassFilter(sample);
+		envelope = envelopeFilter(value);
+		beatFilter(envelope);
+		vTaskDelayUntil( &xLastWakeTime, 2 );
+	}
 
 	while(1) {
 		for (byte i=0;; i++) {
@@ -81,6 +102,20 @@ void BeatDetector::taskFunc() {
 			if (beat > thresh) {
 				digitalWrite(8, HIGH);
 
+				// If (THRESH_RATIO * beat) > thresh, set thresh := (THRESH_RATIO * beat)
+				float maybeNewThresh = beat * THRESH_RATIO;
+				if (maybeNewThresh > MAX_THRESH) {
+					maybeNewThresh = MAX_THRESH;
+				}
+				if (maybeNewThresh > thresh) {
+#ifdef DEBUG
+					if (i % 50 == 0) {
+						Serial.println(maybeNewThresh);
+					}
+#endif
+					thresh = maybeNewThresh;
+				}
+
 				if (prevState == LOW && (millis() > (prevHighAt + DEBOUNCE_MS))) {
 					beatDetected = true;
 					prevState = HIGH;
@@ -92,6 +127,12 @@ void BeatDetector::taskFunc() {
 				if (millis() > prevHighAt + DEBOUNCE_MS) {
 					prevState = LOW;
 				}
+			}
+
+			if (thresh > MIN_THRESH) {
+				thresh -= THRESH_DECAY;
+			} else {
+				thresh = MIN_THRESH;
 			}
 
 			// Maintain fixed sample frequency
