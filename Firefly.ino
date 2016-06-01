@@ -60,10 +60,12 @@ const unsigned long SLAVE_TIMEOUT = 2000;
 
 // Min and max times between color changes
 const unsigned long COLOR_CHANGE_MIN = 4000;
-const unsigned long COLOR_CHANGE_MAX = 60000;
+const unsigned long COLOR_CHANGE_MAX = 10000;
 
 // When generating a random color, the minimum (sum) brightness of the colors allowed.
-const unsigned long MIN_BRIGHTNESS = 60;
+const unsigned long MIN_BRIGHTNESS = 90;
+// When generating a random color, the individual max brightness allowed (fed to random()).
+const unsigned long MAX_BRIGHTNESS = 80;
 
 enum State {
 	INIT,
@@ -178,9 +180,9 @@ byte heartbeatB = 63;
 
 void setHeartbeatColor() {
 	do {
-		heartbeatR = random(63);
-		heartbeatG = random(63);
-		heartbeatB = random(63);
+		heartbeatR = random(MAX_BRIGHTNESS);
+		heartbeatG = random(MAX_BRIGHTNESS);
+		heartbeatB = random(MAX_BRIGHTNESS);
 	} while (heartbeatR + heartbeatG + heartbeatB < MIN_BRIGHTNESS);
 	nextColorChange = millis() + random(COLOR_CHANGE_MIN, COLOR_CHANGE_MAX);
 }
