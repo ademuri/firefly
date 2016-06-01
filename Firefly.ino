@@ -82,6 +82,10 @@ TaskHandle_t beatTask;
 // Tells us that a beat was detected and we should broadcast a heartbeat
 boolean beatDetected = false;
 
+// Keeps state of whether we were detected beats or not. This way, when we transition from hearing
+// beats to not (or vice versa), we change color.
+boolean onBeat = false;
+
 State state = INIT;
 
 // Amount of time we've been in the init state. When we start, listen for a few
@@ -145,16 +149,20 @@ byte receiveData(CCPACKET *packet) {
 // Blinks a heartbeat for a preset amount of time.
 void processHeartbeat(CCPACKET packet) {
 	// TODO: actually use the packet
-	ctrl->setPattern((Pattern)packet.data[1], 127);
+	ctrl->setPattern((Pattern)packet.data[1], packet.data[2], packet.data[3], packet.data[4]);
 }
 
 void processOwnHeartbeat(CCPACKET packet) {
 	// TODO: actually use the packet
 	//ctrl->setPattern((Pattern)packet.data[1], 127);
-	ctrl->setPattern(BLINK_ONCE, 63);
+	ctrl->setPattern(BLINK_ONCE, packet.data[2], packet.data[3], packet.data[4]);
 }
 
 CCPACKET toSend;
+
+byte heartbeatR = 63;
+byte heartbeatG = 63;
+byte heartbeatB = 63;
 
 // Heartbeat packet structure:
 // 0: type (HEARTBEAT)
@@ -165,8 +173,20 @@ CCPACKET toSend;
 void broadcastHeartbeat() {
 	if (beatDetected) {
 		masterNextHeartbeatTime = millis() + BEAT_HEARTBEAT_INTERVAL;
+		if (!onBeat) {
+			heartbeatR = random(63);
+			heartbeatG = random(63);
+			heartbeatB = random(63);
+			onBeat = true;
+		}
 	} else {
 		masterNextHeartbeatTime = millis() + MASTER_HEARTBEAT_INTERVAL;
+		if (onBeat) {
+			heartbeatR = random(63);
+			heartbeatG = random(63);
+			heartbeatB = random(63);
+			onBeat = false;
+		}
 	}
 	beatDetected = false;
 	toSend.length = 5;
@@ -177,9 +197,9 @@ void broadcastHeartbeat() {
 //	toSend.data[1] = random(1, 3);
 
 	// White
-	toSend.data[2] = 0xFF;
-	toSend.data[3] = 0xFF;
-	toSend.data[4] = 0xFF;
+	toSend.data[2] = heartbeatR;
+	toSend.data[3] = heartbeatG;
+	toSend.data[4] = heartbeatB;
 
 	sendData(toSend);
 

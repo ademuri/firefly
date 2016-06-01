@@ -18,10 +18,12 @@ void PatternController::cast(void* param) {
 	ctrl->taskFunc();
 }
 
-void PatternController::setPattern(Pattern pattern, byte brightness) {
+void PatternController::setPattern(Pattern pattern, byte r, byte g, byte b) {
 	if (pattern != this->currentPattern) {
 		this->currentPattern = pattern;
-		this->brightness = brightness;
+		this->r = r;
+		this->g = g;
+		this->b = b;
 		this->taskChanged = true;
 		xTaskNotifyGive(this->taskHandle);
 	}
@@ -30,7 +32,9 @@ void PatternController::setPattern(Pattern pattern, byte brightness) {
 PatternController::PatternController(QueueHandle_t ledQueue) {
 	this->ledQueue = ledQueue;
 	this->taskHandle = NULL;
-	this->brightness = 255;
+	this->r = 63;
+	this->g = 63;
+	this->b = 63;
 }
 
 void PatternController::taskFunc() {
@@ -40,9 +44,9 @@ void PatternController::taskFunc() {
 		// If we're here, the pattern changed
 		xQueueReset(ledQueue);
 		this->taskChanged = false;
-		onMsg.r = brightness;
-		onMsg.g = brightness;
-		onMsg.b = brightness;
+		onMsg.r = r;
+		onMsg.g = g;
+		onMsg.b = b;
 
 		switch(this->currentPattern) {
 		case OFF:

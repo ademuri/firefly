@@ -25,7 +25,9 @@ private:
 	bool taskChanged = false;
 	QueueHandle_t ledQueue;
 	TaskHandle_t taskHandle;
-	byte brightness;
+	byte r;
+	byte g;
+	byte b;
 
 	/**
 	 * FreeRTOS task loop.
@@ -34,7 +36,10 @@ private:
 public:
 	PatternController(QueueHandle_t ledQueue);
 
-	void setPattern(Pattern, byte brightness);
+	/**
+	 * Uses the given pattern.
+	 */
+	void setPattern(Pattern, byte r, byte g, byte b);
 
 	/**
 	 * Glue for FreeRTOS.
