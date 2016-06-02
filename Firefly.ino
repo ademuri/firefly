@@ -63,9 +63,13 @@ const unsigned long COLOR_CHANGE_MIN = 4000;
 const unsigned long COLOR_CHANGE_MAX = 10000;
 
 // When generating a random color, the minimum (sum) brightness of the colors allowed.
-const unsigned long MIN_BRIGHTNESS = 90;
+const unsigned int MIN_SUM_BRIGHTNESS = 90;
+
+// When generating a random color, at least one color must be at least this bright.
+const unsigned int MIN_IND_BRIGHTNESS = 60;
+
 // When generating a random color, the individual max brightness allowed (fed to random()).
-const unsigned long MAX_BRIGHTNESS = 80;
+const unsigned int MAX_BRIGHTNESS = 80;
 
 enum State {
 	INIT,
@@ -183,7 +187,8 @@ void setHeartbeatColor() {
 		heartbeatR = random(MAX_BRIGHTNESS);
 		heartbeatG = random(MAX_BRIGHTNESS);
 		heartbeatB = random(MAX_BRIGHTNESS);
-	} while (heartbeatR + heartbeatG + heartbeatB < MIN_BRIGHTNESS);
+	} while ((heartbeatR < MIN_IND_BRIGHTNESS || heartbeatG < MIN_IND_BRIGHTNESS || heartbeatB < MIN_IND_BRIGHTNESS)
+			|| (heartbeatR + heartbeatG + heartbeatB < MIN_SUM_BRIGHTNESS));
 	nextColorChange = millis() + random(COLOR_CHANGE_MIN, COLOR_CHANGE_MAX);
 }
 

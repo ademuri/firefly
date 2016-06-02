@@ -8,6 +8,7 @@
 #include "BeatDetector.h"
 
 // Liberally uses code from http://dpeckett.com/beat-detection-on-the-arduino
+// Filters generated using http://www.schwietering.com/jayduino/filtuino/index.php
 
 // 20 - 200hz Single Pole Bandpass IIR Filter
 float bassFilter(float sample) {
