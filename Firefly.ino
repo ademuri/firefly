@@ -40,6 +40,9 @@
 
 #define DEBUG
 
+// Whether to perform a Power-On System Test
+#define POST
+
 // Use an unconnected analog pin to seed the random number generator
 #define ANALOG_RANDOM_PIN 1
 
@@ -188,7 +191,7 @@ void setHeartbeatColor() {
 		heartbeatG = random(MAX_BRIGHTNESS);
 		heartbeatB = random(MAX_BRIGHTNESS);
 	} while ((heartbeatR < MIN_IND_BRIGHTNESS || heartbeatG < MIN_IND_BRIGHTNESS || heartbeatB < MIN_IND_BRIGHTNESS)
-			|| (heartbeatR + heartbeatG + heartbeatB < MIN_SUM_BRIGHTNESS));
+			&& (heartbeatR + heartbeatG + heartbeatB < MIN_SUM_BRIGHTNESS));
 	nextColorChange = millis() + random(COLOR_CHANGE_MIN, COLOR_CHANGE_MAX);
 }
 
@@ -533,28 +536,9 @@ void setup() {
 	cbi(ADCSRA,ADPS1);
 	cbi(ADCSRA,ADPS0);
 
-	cc.init();
-	cc.setCarrierFreq(CFREQ_433);
-
-	// Receive packets to all addresses
-	cc.disableAddressCheck();
-
-	// Setup some config values.
-	// 10: clear channel "Unless currently receiving a packet"
-	// 1111: default to RX mode after sending or receiving a packet
-	//cc.writeReg(CC1101_MCSM1, 0b101111);
-	cc.writeReg(CC1101_MCSM1, 0b100000);
-
-	// Go for maximum range
-	cc.setTxPowerAmp(PA_LongDistance);
-
-	cc.setRxState();
 
 	Serial.println("Starting... ");
 	initStarted = millis();
-
-	// TODO: remove this
-	//state = MASTER;
 
 	BaseType_t xReturned = xTaskCreate(
 	                    &mainLoop,       /* Function that implements the task. */
@@ -569,8 +553,20 @@ void setup() {
 	}
 #endif
 
+	// MYSTERIES OF THE UNIVERSE: these allocations must happen after the main xTaskCreate above,
+	// or everything breaks.
 	ledQueue = xQueueCreate(5, sizeof(LedMsg));
 	Led* led = new Led(ledQueue);
+
+#ifdef POST
+	led->writeColor(127, 0, 0);
+	delay(200);
+	led->writeColor(0, 127, 0);
+	delay(200);
+	led->writeColor(0, 0, 127);
+	delay(200);
+	led->writeColor(0, 0, 0);
+#endif
 
 	xReturned = xTaskCreate(
 			&(Led::cast),       /* Function that implements the task. */
@@ -586,7 +582,6 @@ void setup() {
 #endif
 
 	ctrl = new PatternController(ledQueue);
-
 	xReturned = xTaskCreate(
 			&(PatternController::cast),       /* Function that implements the task. */
 			"CTRL",          /* Text name for the task. */
@@ -612,7 +607,33 @@ void setup() {
 	// beatTask gets resumed when we become master
 	vTaskSuspend(beatTask);
 
-	//Serial.println("Starting scheduler");
+	// Init the radio
+	cc.init();
+	cc.setCarrierFreq(CFREQ_433);
+
+	// Receive packets to all addresses
+	cc.disableAddressCheck();
+
+	// Setup some config values.
+	// 10: clear channel "Unless currently receiving a packet"
+	// 1111: default to RX mode after sending or receiving a packet
+	//cc.writeReg(CC1101_MCSM1, 0b101111);
+	cc.writeReg(CC1101_MCSM1, 0b100000);
+
+#ifdef POST
+	if (cc.readConfigReg(CC1101_MCSM1) == 0b100000) {
+		led->writeColor(0, 127, 0);
+		delay(200);
+	} else {
+		led->writeColor(127, 0, 0);
+		delay(500);
+	}
+#endif
+
+	// Go for maximum range
+	cc.setTxPowerAmp(PA_LongDistance);
+
+	cc.setRxState();
 
 	vTaskStartScheduler();
 }
