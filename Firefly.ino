@@ -91,6 +91,7 @@ enum PacketType {
 };
 
 CC1101 cc;
+Led* led;
 QueueHandle_t ledQueue;
 PatternController* ctrl;
 TaskHandle_t beatTask;
@@ -167,15 +168,12 @@ byte receiveData(CCPACKET *packet) {
 	return 0;
 }
 
-// Blinks a heartbeat for a preset amount of time.
+// Blinks a heartbeat
 void processHeartbeat(CCPACKET packet) {
-	// TODO: actually use the packet
 	ctrl->setPattern((Pattern)packet.data[1], packet.data[2], packet.data[3], packet.data[4]);
 }
 
 void processOwnHeartbeat(CCPACKET packet) {
-	// TODO: actually use the packet
-	//ctrl->setPattern((Pattern)packet.data[1], 127);
 	ctrl->setPattern(BLINK_ONCE, packet.data[2], packet.data[3], packet.data[4]);
 }
 
@@ -556,7 +554,7 @@ void setup() {
 	// MYSTERIES OF THE UNIVERSE: these allocations must happen after the main xTaskCreate above,
 	// or everything breaks.
 	ledQueue = xQueueCreate(5, sizeof(LedMsg));
-	Led* led = new Led(ledQueue);
+	led = new Led(ledQueue);
 
 #ifdef POST
 	led->writeColor(127, 0, 0);
@@ -581,7 +579,7 @@ void setup() {
 	}
 #endif
 
-	ctrl = new PatternController(ledQueue);
+	ctrl = new PatternController(led, ledQueue);
 	xReturned = xTaskCreate(
 			&(PatternController::cast),       /* Function that implements the task. */
 			"CTRL",          /* Text name for the task. */
@@ -634,6 +632,11 @@ void setup() {
 	cc.setTxPowerAmp(PA_LongDistance);
 
 	cc.setRxState();
+
+//	for(int i=0; i<20; i++) {
+//		Serial.println(analogRead(INPUT_PIN));
+//		delay(1);
+//	}
 
 	vTaskStartScheduler();
 }

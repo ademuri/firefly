@@ -19,6 +19,8 @@ void PatternController::cast(void* param) {
 }
 
 void PatternController::setPattern(Pattern pattern, byte r, byte g, byte b) {
+	this->led->writeColor(r, g, b);
+
 	if (pattern != this->currentPattern) {
 		this->currentPattern = pattern;
 		this->r = r;
@@ -29,7 +31,8 @@ void PatternController::setPattern(Pattern pattern, byte r, byte g, byte b) {
 	}
 }
 
-PatternController::PatternController(QueueHandle_t ledQueue) {
+PatternController::PatternController(Led* led, QueueHandle_t ledQueue) {
+	this->led = led;
 	this->ledQueue = ledQueue;
 	this->taskHandle = NULL;
 	this->r = 63;
