@@ -63,21 +63,21 @@ const float MAX_THRESH = 10.f;
 // at 500hz.
 const float THRESH_DECAY = .001f;
 // What ratio of the peak incoming level to set the threshold to.
-const float THRESH_RATIO = 0.7f;
+const float THRESH_RATIO = 0.8f;
 
 void BeatDetector::taskFunc() {
 	TickType_t xLastWakeTime = xTaskGetTickCount();
 	float sample, value, envelope, beat;
 	float thresh = MIN_THRESH;
 
-	const long DEBOUNCE_MS = 200; // at 180bpm there'll be 330ms between beats
+	const long DEBOUNCE_MS = 100; // at 180bpm there'll be 330ms between beats
 	unsigned long prevHighAt = 0;
 	bool prevState = LOW;
 
 	// There's a brief spike in the filtered signal. Run through the sampling for a little while
 	// to initialize the filter state.
 	for (int i = 0; i < 300; i++) {
-		sample = (float)analogRead(INPUT_PIN)-503.f;
+		sample = (float)analogRead(INPUT_PIN)-855.f;
 		value = bassFilter(sample);
 		envelope = envelopeFilter(value);
 		beatFilter(envelope);
@@ -86,8 +86,8 @@ void BeatDetector::taskFunc() {
 
 	while(1) {
 		for (byte i=0;; i++) {
-			// Read ADC and center so +-512
-			sample = (float)analogRead(INPUT_PIN)-503.f;
+			// Correct for DC offset so that with no audio signal, our input is about 0.
+			sample = (float)analogRead(INPUT_PIN)-855.f;
 
 			// Filter only bass component
 			value = bassFilter(sample);

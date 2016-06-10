@@ -23,6 +23,7 @@ class PatternController {
 private:
 	Pattern currentPattern = OFF;
 	bool taskChanged = false;
+	Led* led;
 	QueueHandle_t ledQueue;
 	TaskHandle_t taskHandle;
 	byte r;
@@ -34,7 +35,7 @@ private:
 	 */
 	void taskFunc();
 public:
-	PatternController(QueueHandle_t ledQueue);
+	PatternController(Led* led, QueueHandle_t ledQueue);
 
 	/**
 	 * Uses the given pattern.
