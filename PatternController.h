@@ -17,6 +17,7 @@ enum Pattern {
 	BLINK_ONCE,
 	BLINK_TWICE,
 	SIMPLE_BLINK,	// On and off repeatedly
+	LONG_BLINK,
 };
 
 class PatternController {

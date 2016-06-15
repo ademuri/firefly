@@ -41,7 +41,7 @@ PatternController::PatternController(Led* led, QueueHandle_t ledQueue) {
 }
 
 void PatternController::taskFunc() {
-	LedMsg offMsg = {0, 0, 0, 100};
+	LedMsg offMsg = {0, 0, 0, 1};
 	LedMsg onMsg = {255, 255, 255, 100};
 	while(1) {
 		// If we're here, the pattern changed
@@ -53,16 +53,29 @@ void PatternController::taskFunc() {
 
 		switch(this->currentPattern) {
 		case OFF:
+			offMsg.duration = 1;
 			xQueueSendToFront(ledQueue, &offMsg, 0);
 			break;
 
 		case BLINK_ONCE:
+			onMsg.duration = 100;
+			offMsg.duration = 1;
+			xQueueSendToBack(ledQueue, &onMsg, 0);
+			xQueueSendToBack(ledQueue, &offMsg, 0);
+			this->currentPattern = OFF;
+			break;
+
+		case LONG_BLINK:
+			onMsg.duration = 1000;
+			offMsg.duration = 1;
 			xQueueSendToBack(ledQueue, &onMsg, 0);
 			xQueueSendToBack(ledQueue, &offMsg, 0);
 			this->currentPattern = OFF;
 			break;
 
 		case BLINK_TWICE:
+			onMsg.duration = 100;
+			offMsg.duration = 100;
 			xQueueSendToBack(ledQueue, &onMsg, 0);
 			xQueueSendToBack(ledQueue, &offMsg, 0);
 			xQueueSendToBack(ledQueue, &onMsg, 0);
@@ -71,6 +84,8 @@ void PatternController::taskFunc() {
 			break;
 
 		case SIMPLE_BLINK:
+			onMsg.duration = 100;
+			offMsg.duration = 100;
 			while (!this->taskChanged) {
 				xQueueSendToBack(ledQueue, &onMsg, portMAX_DELAY);
 				xQueueSendToBack(ledQueue, &offMsg, portMAX_DELAY);

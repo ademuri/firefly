@@ -40,11 +40,19 @@
 
 #define DEBUG
 
+// Whether to check the version of other nodes on power-on
+#define DEBUG_VERSION
+
 // Whether to perform a Power-On System Test
 #define POST
 
 // Use an unconnected analog pin to seed the random number generator
-#define ANALOG_RANDOM_PIN 1
+const byte ANALOG_RANDOM_PIN = 1;
+
+// Nondecreasing number indicating the software version. Hopefully I'll remember to increment this
+// every time I update things :)
+const byte OUR_VERSION = 2;
+const byte VERSION_BRIGHTNESS = 100;
 
 const unsigned long INIT_SEARCH_TIME_MILLIS = 2000;
 const unsigned long MASTER_HEARTBEAT_INTERVAL = 800;
@@ -88,6 +96,7 @@ enum PacketType {
 	PING_RESPONSE,
 	CLAIM_MASTER,
 	MASTER_NEGOTIATE_ANNOUNCE,	// Master brags about how many visible nodes
+	CHECK_VERSION,
 };
 
 CC1101 cc;
@@ -276,6 +285,32 @@ void respondToPing(CCPACKET originalPing) {
 	sendData(toSend);
 }
 
+// Displays GREEN if we're at or above the specified software version, RED otherwise.
+// 0: type (CHECK_VERSION)
+// 1: version
+void respondToVersion(CCPACKET versionPacket) {
+	if (versionPacket.data[1] > OUR_VERSION) {
+		// BAD - we're not at the specified version
+		ctrl->setPattern(LONG_BLINK, VERSION_BRIGHTNESS, 0, 0);
+	} else {
+		// GOOD - we're at least at the specified version
+		ctrl->setPattern(LONG_BLINK, 0, VERSION_BRIGHTNESS, 0);
+	}
+
+	// POTENTIALLY DANGEROUS: this will be in production code and may cause problems. However,
+	// well-formed clients will not send the check version command during normal use.
+	vTaskDelay(1000);
+}
+
+#ifdef DEBUG_VERSION
+void broadcastCheckVersion() {
+	toSend.length = 2;
+	toSend.data[0] = CHECK_VERSION;
+	toSend.data[1] = OUR_VERSION;
+	sendData(toSend);
+}
+#endif
+
 bool isMyPing(CCPACKET pingResponse) {
 	return pingResponse.data[1] == lastNonceLower
 			&& pingResponse.data[2] == lastNonceUpper;
@@ -322,6 +357,13 @@ State prevState = INIT;
 // The loop function is called in an endless loop
 void mainLoop(void* params) {
 	Serial.println("done.");
+
+#ifdef DEBUG_VERSION
+	broadcastCheckVersion();
+	// Also blink the "GOOD" pattern ourselves
+	ctrl->setPattern(LONG_BLINK, 0, VERSION_BRIGHTNESS, 0);
+	vTaskDelay(1000);
+#endif
 
 	while (1) {
 //		timing[timeIndex] = millis();
@@ -388,6 +430,9 @@ void mainLoop(void* params) {
 #ifdef DEBUG_STATE
 					Serial.println("CLAIM_MASTER received");
 #endif
+					break;
+				case CHECK_VERSION:
+					respondToVersion(packet);
 					break;
 				case PING_RESPONSE:
 					// If we're not doing master selection, we don't care about ping responses, so
@@ -493,6 +538,9 @@ void mainLoop(void* params) {
 					break;
 				case PING:
 					respondToPing(packet);
+					break;
+				case CHECK_VERSION:
+					respondToVersion(packet);
 					break;
 				case UNKNOWN:
 				case PING_RESPONSE:
