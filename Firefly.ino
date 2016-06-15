@@ -41,7 +41,7 @@
 #define DEBUG
 
 // Whether to check the version of other nodes on power-on
-#define DEBUG_VERSION
+//#define DEBUG_VERSION
 
 // Whether to perform a Power-On System Test
 #define POST
@@ -51,7 +51,7 @@ const byte ANALOG_RANDOM_PIN = 1;
 
 // Nondecreasing number indicating the software version. Hopefully I'll remember to increment this
 // every time I update things :)
-const byte OUR_VERSION = 2;
+const byte OUR_VERSION = 3;
 const byte VERSION_BRIGHTNESS = 100;
 
 const unsigned long INIT_SEARCH_TIME_MILLIS = 2000;
@@ -81,6 +81,11 @@ const unsigned int MIN_IND_BRIGHTNESS = 60;
 
 // When generating a random color, the individual max brightness allowed (fed to random()).
 const unsigned int MAX_BRIGHTNESS = 80;
+
+// In the heartbeat packet, the most significant bit is the TTL bit. When set, it indicates that
+// the receiver should rebroadcast the packet.
+const byte TTL_MASK = 0x80;
+const byte PATTERN_MASK = 0x7F;
 
 enum State {
 	INIT,
@@ -179,11 +184,20 @@ byte receiveData(CCPACKET *packet) {
 
 // Blinks a heartbeat
 void processHeartbeat(CCPACKET packet) {
-	ctrl->setPattern((Pattern)packet.data[1], packet.data[2], packet.data[3], packet.data[4]);
+	// Mask out the TTL bit
+	Pattern pattern = (Pattern) (packet.data[1] & PATTERN_MASK);
+	ctrl->setPattern(pattern, packet.data[2], packet.data[3], packet.data[4]);
+
+	// If the TTL bit is set, clear it (!) and retransmit the packet
+	if (packet.data[1] & TTL_MASK) {
+		packet.data[1] &= PATTERN_MASK;
+		sendData(packet);
+	}
 }
 
 void processOwnHeartbeat(CCPACKET packet) {
-	ctrl->setPattern(BLINK_ONCE, packet.data[2], packet.data[3], packet.data[4]);
+	Pattern pattern = (Pattern) (packet.data[1] & PATTERN_MASK);
+	ctrl->setPattern(pattern, packet.data[2], packet.data[3], packet.data[4]);
 }
 
 CCPACKET toSend;
@@ -204,10 +218,10 @@ void setHeartbeatColor() {
 
 // Heartbeat packet structure:
 // 0: type (HEARTBEAT)
-// 1: Pattern
-// 2: Red intensity
-// 3: Green intensity
-// 4: Blue intensity
+// 2: Pattern
+// 3: Red intensity
+// 4: Green intensity
+// 5: Blue intensity
 void broadcastHeartbeat() {
 	if (beatDetected) {
 		masterNextHeartbeatTime = millis() + BEAT_HEARTBEAT_INTERVAL;
@@ -226,17 +240,12 @@ void broadcastHeartbeat() {
 	toSend.length = 5;
 	toSend.data[0] = HEARTBEAT;
 
-	toSend.data[1] = 1;
-	// Randomly choose a single or continuous blink. Upper bound is exclusive.
-//	toSend.data[1] = random(1, 3);
-
-	// White
+	toSend.data[1] = BLINK_ONCE | TTL_MASK;
 	toSend.data[2] = heartbeatR;
 	toSend.data[3] = heartbeatG;
 	toSend.data[4] = heartbeatB;
 
 	sendData(toSend);
-
 	processOwnHeartbeat(toSend);
 }
 

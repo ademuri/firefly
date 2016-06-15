@@ -13,6 +13,7 @@ class PacketType(IntEnum):
 	PING_RESPONSE = 3
 	CLAIM_MASTER = 4
 	MASTER_NEGOTIATE_ANNOUNCE = 5
+	CHECK_VERSION = 6
 	
 
 class Packet:
