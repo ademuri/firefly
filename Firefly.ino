@@ -54,7 +54,7 @@ const byte BEACON_PIN = 7;
 
 // Nondecreasing number indicating the software version. Hopefully I'll remember to increment this
 // every time I update things :)
-const byte OUR_VERSION = 3;
+const byte OUR_VERSION = 4;
 const byte VERSION_BRIGHTNESS = 100;
 
 const unsigned long INIT_SEARCH_TIME_MILLIS = 2000;
@@ -62,6 +62,16 @@ const unsigned long MASTER_HEARTBEAT_INTERVAL = 600;
 
 // How long between heartbeats in beacon mode
 const unsigned long BEACON_HEARTBEAT_INTERVAL = 600;
+
+// How frequently to retransmit the beacon mode packet
+const unsigned long BEACON_MODE_RETRANSMIT = 1000;
+
+// How long after our last beacon mode packet before beacon mode times out
+const unsigned long BEACON_MODE_TIMEOUT = 5000;
+
+// If someone else sends a beacon mode packet, how long to wait after BEACON_MODE_RETRANSMIT
+// for them to send it before sending it ourself, so that we don't both send it at the same time.
+const unsigned long BEACON_MODE_BACKOFF = 100;
 
 // How long to wait for a beat before resuming steady beats
 const unsigned long BEAT_HEARTBEAT_INTERVAL = 1500;
@@ -108,6 +118,7 @@ enum PacketType {
 	CLAIM_MASTER,
 	MASTER_NEGOTIATE_ANNOUNCE,	// Master brags about how many visible nodes
 	CHECK_VERSION,
+	BEACON_MODE,
 };
 
 CC1101 cc;
@@ -124,6 +135,12 @@ boolean beatDetected = false;
 boolean onBeat = false;
 
 boolean beaconMode = false;
+
+// When to send the next beacon mode packet
+unsigned long nextBeaconModeSend = 0;
+
+// When the current beacon mode will timeout
+unsigned long beaconModeTimeout = 0;
 
 State state = INIT;
 
@@ -220,7 +237,7 @@ void setHeartbeatColor() {
 		heartbeatG = random(MAX_BRIGHTNESS);
 		heartbeatB = random(MAX_BRIGHTNESS);
 	} while ((heartbeatR < MIN_IND_BRIGHTNESS || heartbeatG < MIN_IND_BRIGHTNESS || heartbeatB < MIN_IND_BRIGHTNESS)
-			&& (heartbeatR + heartbeatG + heartbeatB < MIN_SUM_BRIGHTNESS));
+			&& ((unsigned int)heartbeatR + heartbeatG + heartbeatB < MIN_SUM_BRIGHTNESS));
 	nextColorChange = millis() + random(COLOR_CHANGE_MIN, COLOR_CHANGE_MAX);
 }
 
@@ -337,6 +354,28 @@ void broadcastCheckVersion() {
 }
 #endif
 
+// Broadcasts that the network is in beacon mode. Beacon mode disables beat detection.
+// 0: type (BEACON_MODE)
+// 1: TTL (0 or 1)
+void broadcastBeaconMode() {
+	toSend.length = 2;
+	toSend.data[0] = BEACON_MODE;
+	toSend.data[1] = 1;
+	sendData(toSend);
+}
+
+void receiveBeaconMode(CCPACKET packet) {
+	beaconMode = true;
+	// If we receive a beacon mode packet, don't send one for a little while
+	nextBeaconModeSend = millis() + BEACON_MODE_RETRANSMIT + BEACON_MODE_BACKOFF;
+	beaconModeTimeout = millis() + BEACON_MODE_TIMEOUT;
+	// If TTL is 1, rebroadcast. Otherwise, do nothing.
+	if (packet.data[1]) {
+		packet.data[1] = 0;
+		sendData(packet);
+	}
+}
+
 bool isMyPing(CCPACKET pingResponse) {
 	return pingResponse.data[1] == lastNonceLower
 			&& pingResponse.data[2] == lastNonceUpper;
@@ -396,10 +435,14 @@ void mainLoop(void* params) {
 		// Beacon mode: if the beacon mode switch is on, turn on beacon mode.
 		if (digitalRead(BEACON_PIN)) {
 			beaconMode = true;
+			if (millis() > nextBeaconModeSend) {
+				broadcastBeaconMode();
+				nextBeaconModeSend = millis() + BEACON_MODE_RETRANSMIT;
+			}
 		} else {
-			// TODO: eventually, other nodes will send us packets that also switch us into beacon
-			// mode, so we'll just time out of beacon mode if the switch is off.
-			beaconMode = false;
+			if (millis() > beaconModeTimeout) {
+				beaconMode = false;
+			}
 		}
 
 		switch (state) {
@@ -436,7 +479,12 @@ void mainLoop(void* params) {
 			break;
 
 		case MASTER:
-			if (beatDetected || millis() > masterNextHeartbeatTime) {
+			if (beaconMode) {
+				// ignore beat detection
+				if (millis() > masterNextHeartbeatTime) {
+					broadcastHeartbeat();
+				}
+			} else if (beatDetected || millis() > masterNextHeartbeatTime) {
 				broadcastHeartbeat();
 			}
 			if (receiveData(&packet) > 0) {
@@ -457,6 +505,9 @@ void mainLoop(void* params) {
 					break;
 				case CHECK_VERSION:
 					respondToVersion(packet);
+					break;
+				case BEACON_MODE:
+					receiveBeaconMode(packet);
 					break;
 				case PING_RESPONSE:
 					// If we're not doing master selection, we don't care about ping responses, so
@@ -565,6 +616,9 @@ void mainLoop(void* params) {
 					break;
 				case CHECK_VERSION:
 					respondToVersion(packet);
+					break;
+				case BEACON_MODE:
+					receiveBeaconMode(packet);
 					break;
 				case UNKNOWN:
 				case PING_RESPONSE:
