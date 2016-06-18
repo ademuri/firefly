@@ -49,13 +49,19 @@
 // Use an unconnected analog pin to seed the random number generator
 const byte ANALOG_RANDOM_PIN = 1;
 
+// The digital input pin for the beacon switch
+const byte BEACON_PIN = 7;
+
 // Nondecreasing number indicating the software version. Hopefully I'll remember to increment this
 // every time I update things :)
 const byte OUR_VERSION = 3;
 const byte VERSION_BRIGHTNESS = 100;
 
 const unsigned long INIT_SEARCH_TIME_MILLIS = 2000;
-const unsigned long MASTER_HEARTBEAT_INTERVAL = 800;
+const unsigned long MASTER_HEARTBEAT_INTERVAL = 600;
+
+// How long between heartbeats in beacon mode
+const unsigned long BEACON_HEARTBEAT_INTERVAL = 600;
 
 // How long to wait for a beat before resuming steady beats
 const unsigned long BEAT_HEARTBEAT_INTERVAL = 1500;
@@ -116,6 +122,8 @@ boolean beatDetected = false;
 // Keeps state of whether we were detected beats or not. This way, when we transition from hearing
 // beats to not (or vice versa), we change color.
 boolean onBeat = false;
+
+boolean beaconMode = false;
 
 State state = INIT;
 
@@ -223,7 +231,12 @@ void setHeartbeatColor() {
 // 4: Green intensity
 // 5: Blue intensity
 void broadcastHeartbeat() {
-	if (beatDetected) {
+	if (beaconMode) {
+		masterNextHeartbeatTime = millis() + BEACON_HEARTBEAT_INTERVAL;
+		if (millis() > nextColorChange) {
+			setHeartbeatColor();
+		}
+	} else if (beatDetected) {
 		masterNextHeartbeatTime = millis() + BEAT_HEARTBEAT_INTERVAL;
 		if (!onBeat || millis() > nextColorChange) {
 			setHeartbeatColor();
@@ -240,7 +253,11 @@ void broadcastHeartbeat() {
 	toSend.length = 5;
 	toSend.data[0] = HEARTBEAT;
 
-	toSend.data[1] = BLINK_ONCE | TTL_MASK;
+	if (beaconMode) {
+		toSend.data[1] = BLINK_TWICE | TTL_MASK;
+	} else {
+		toSend.data[1] = BLINK_ONCE | TTL_MASK;
+	}
 	toSend.data[2] = heartbeatR;
 	toSend.data[3] = heartbeatG;
 	toSend.data[4] = heartbeatB;
@@ -375,17 +392,15 @@ void mainLoop(void* params) {
 #endif
 
 	while (1) {
-//		timing[timeIndex] = millis();
-//		timeIndex++;
-//		if (timeIndex > 19) {
-//			timeIndex = 0;
-//			Serial.print("Timing: ");
-//			for (byte i=1; i<19; i++) {
-//				Serial.print(timing[i] - timing[i-1], DEC);
-//				Serial.print(", ");
-//			}
-//			Serial.println();
-//		}
+
+		// Beacon mode: if the beacon mode switch is on, turn on beacon mode.
+		if (digitalRead(BEACON_PIN)) {
+			beaconMode = true;
+		} else {
+			// TODO: eventually, other nodes will send us packets that also switch us into beacon
+			// mode, so we'll just time out of beacon mode if the switch is off.
+			beaconMode = false;
+		}
 
 		switch (state) {
 		case INIT:

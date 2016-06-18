@@ -74,8 +74,8 @@ void PatternController::taskFunc() {
 			break;
 
 		case BLINK_TWICE:
-			onMsg.duration = 100;
-			offMsg.duration = 100;
+			onMsg.duration = 50;
+			offMsg.duration = 50;
 			xQueueSendToBack(ledQueue, &onMsg, 0);
 			xQueueSendToBack(ledQueue, &offMsg, 0);
 			xQueueSendToBack(ledQueue, &onMsg, 0);
