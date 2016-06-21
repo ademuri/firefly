@@ -54,7 +54,7 @@ const byte BEACON_PIN = 7;
 
 // Nondecreasing number indicating the software version. Hopefully I'll remember to increment this
 // every time I update things :)
-const byte OUR_VERSION = 4;
+const byte OUR_VERSION = 5;
 const byte VERSION_BRIGHTNESS = 100;
 
 const unsigned long INIT_SEARCH_TIME_MILLIS = 2000;
@@ -96,7 +96,7 @@ const unsigned int MIN_SUM_BRIGHTNESS = 90;
 const unsigned int MIN_IND_BRIGHTNESS = 60;
 
 // When generating a random color, the individual max brightness allowed (fed to random()).
-const unsigned int MAX_BRIGHTNESS = 80;
+const unsigned int MAX_BRIGHTNESS = 100;
 
 // In the heartbeat packet, the most significant bit is the TTL bit. When set, it indicates that
 // the receiver should rebroadcast the packet.
@@ -211,7 +211,12 @@ byte receiveData(CCPACKET *packet) {
 void processHeartbeat(CCPACKET packet) {
 	// Mask out the TTL bit
 	Pattern pattern = (Pattern) (packet.data[1] & PATTERN_MASK);
-	ctrl->setPattern(pattern, packet.data[2], packet.data[3], packet.data[4]);
+
+	if (beaconMode && digitalRead(BEACON_PIN)) {
+		ctrl->setPattern(pattern, 80, 80, 0);
+	} else {
+		ctrl->setPattern(pattern, packet.data[2], packet.data[3], packet.data[4]);
+	}
 
 	// If the TTL bit is set, clear it (!) and retransmit the packet
 	if (packet.data[1] & TTL_MASK) {
@@ -222,7 +227,11 @@ void processHeartbeat(CCPACKET packet) {
 
 void processOwnHeartbeat(CCPACKET packet) {
 	Pattern pattern = (Pattern) (packet.data[1] & PATTERN_MASK);
-	ctrl->setPattern(pattern, packet.data[2], packet.data[3], packet.data[4]);
+	if (beaconMode && digitalRead(BEACON_PIN)) {
+		ctrl->setPattern(pattern, 80, 80, 0);
+	} else {
+		ctrl->setPattern(pattern, packet.data[2], packet.data[3], packet.data[4]);
+	}
 }
 
 CCPACKET toSend;
