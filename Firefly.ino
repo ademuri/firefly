@@ -54,7 +54,7 @@ const byte BEACON_PIN = 7;
 
 // Nondecreasing number indicating the software version. Hopefully I'll remember to increment this
 // every time I update things :)
-const byte OUR_VERSION = 5;
+const byte OUR_VERSION = 6;
 const byte VERSION_BRIGHTNESS = 100;
 
 const unsigned long INIT_SEARCH_TIME_MILLIS = 2000;
@@ -188,6 +188,16 @@ void sendData(CCPACKET packet) {
 	cc.sendData(packet);
 }
 
+// Rebroadcasts a packet with the same ids that we received it with. Assumes that the ids are already
+// set.
+void sendDataWithPreviousId(CCPACKET packet) {
+	lastIdLower = packet.data[packet.length];
+	lastIdUpper = packet.data[packet.length+1];
+	packet.length += 2;
+
+	// Since we're rebroadcasting, only send once
+	cc.sendData(packet);
+}
 
 byte receiveData(CCPACKET *packet) {
 	if (cc.receiveData(packet) > 0) {
@@ -197,7 +207,7 @@ byte receiveData(CCPACKET *packet) {
 		byte origLength = packet->length - 2;
 		if (packet->data[origLength] != lastIdLower
 				&& packet->data[origLength+1] != lastIdUpper) {
-			packet ->length -= 2;
+			packet->length -= 2;
 			lastIdLower = packet->data[origLength];
 			lastIdUpper = packet->data[origLength+1];
 
@@ -221,7 +231,7 @@ void processHeartbeat(CCPACKET packet) {
 	// If the TTL bit is set, clear it (!) and retransmit the packet
 	if (packet.data[1] & TTL_MASK) {
 		packet.data[1] &= PATTERN_MASK;
-		sendData(packet);
+		sendDataWithPreviousId(packet);
 	}
 }
 
@@ -381,7 +391,7 @@ void receiveBeaconMode(CCPACKET packet) {
 	// If TTL is 1, rebroadcast. Otherwise, do nothing.
 	if (packet.data[1]) {
 		packet.data[1] = 0;
-		sendData(packet);
+		sendDataWithPreviousId(packet);
 	}
 }
 
@@ -472,6 +482,7 @@ void mainLoop(void* params) {
 						respondToPing(packet);
 						break;
 					case PING_RESPONSE:
+					case BEACON_MODE:
 					case UNKNOWN:
 					default:
 						break;
@@ -563,6 +574,7 @@ void mainLoop(void* params) {
 					// and just become the master already.
 					break;
 				case HEARTBEAT:
+				case BEACON_MODE:
 				case UNKNOWN:
 				default:
 					break;
