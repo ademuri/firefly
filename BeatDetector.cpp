@@ -14,34 +14,34 @@
 float bassFilter(float sample) {
 	static float v[3] = {0, 0, 0};
 	v[0] = v[1];
-				v[1] = v[2];
-				v[2] = (6.849759199635238049e-1 * sample)
-					 + (0.36002215309575646973 * v[0])
-					 + (0.28164801021172070072 * v[1]);
-				return
-					 (v[2] - v[0]);
+	v[1] = v[2];
+	v[2] = (4.114818926867040982e-1 * sample)
+		 + (-0.22352648289714907581 * v[0])
+		 + (1.11656067445431017582 * v[1]);
+	return
+		 (v[2] - v[0]);
 }
 
 // 10hz Single Pole Lowpass IIR Filter
 float envelopeFilter(float sample) {
 	static float v[2] = {0, 0};
 	v[0] = v[1];
-				v[1] = (5.919070381840546569e-2 * sample)
-					 + (0.88161859236318906863 * v[0]);
-				return
-					 (v[0] + v[1]);
+	v[1] = (3.046874709125380054e-2 * sample)
+		 + (0.93906250581749239892 * v[0]);
+	return
+		 (v[0] + v[1]);
 }
 
 // 1.7 - 3.0hz Single Pole Bandpass IIR Filter
 float beatFilter(float sample) {
 	static float v[3] = {0, 0, 0};
 	v[0] = v[1];
-				v[1] = v[2];
-				v[2] = (8.179212904903934711e-3 * sample)
-					 + (-0.98379571669365140085 * v[0])
-					 + (1.98299691795931032345 * v[1]);
-				return
-					 (v[2] - v[0]);
+	v[1] = v[2];
+	v[2] = (4.106189391542950512e-3 * sample)
+		 + (-0.99186503763064659545 * v[0])
+		 + (1.99166451889676765497 * v[1]);
+	return
+		 (v[2] - v[0]);
 }
 
 BeatDetector::BeatDetector() {
@@ -81,7 +81,7 @@ void BeatDetector::taskFunc() {
 		value = bassFilter(sample);
 		envelope = envelopeFilter(value);
 		beatFilter(envelope);
-		vTaskDelayUntil( &xLastWakeTime, 2 );
+		vTaskDelayUntil( &xLastWakeTime, 1 );
 	}
 
 	while(1) {
@@ -137,10 +137,10 @@ void BeatDetector::taskFunc() {
 			}
 
 			// Maintain fixed sample frequency
-			// Note that since this is trying to delay only 2 ticks, it may not maintain a very
+			// Note that since this is trying to delay only 1 tick, it may not maintain a very
 			// fixed sample frequency. The filters rely on a fixed frequency, so it may make them
 			// unreliable.
-			vTaskDelayUntil( &xLastWakeTime, 2 );
+			vTaskDelayUntil( &xLastWakeTime, 1 );
 		}
 	}
 }
