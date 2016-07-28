@@ -65,8 +65,10 @@ const float THRESH_DECAY = .001f;
 // What ratio of the peak incoming level to set the threshold to.
 const float THRESH_RATIO = 0.8f;
 
+TickType_t xLastWakeTime;
+
 void BeatDetector::taskFunc() {
-	TickType_t xLastWakeTime = xTaskGetTickCount();
+	xLastWakeTime = xTaskGetTickCount();
 	float sample, value, envelope, beat;
 	float thresh = MIN_THRESH;
 
@@ -139,4 +141,8 @@ void BeatDetector::taskFunc() {
 			vTaskDelayUntil( &xLastWakeTime, 1 );
 		}
 	}
+}
+
+void BeatDetector::resetLastWakeTime() {
+	xLastWakeTime = xTaskGetTickCount();
 }

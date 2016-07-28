@@ -127,6 +127,7 @@ enum PacketType {
 	BEACON_MODE,
 };
 
+BeatDetector* beat;
 CC1101 cc;
 Led* led;
 QueueHandle_t ledQueue;
@@ -430,6 +431,7 @@ void broadcastMasterNegotiateAnnounce() {
 void becomeMaster() {
 	state = MASTER;
 	broadcastClaimMaster();
+	beat->resetLastWakeTime();
 	vTaskResume(beatTask);
 	nextColorChange = millis() + random(COLOR_CHANGE_MIN, COLOR_CHANGE_MAX);
 	digitalWrite(STATUS_LED, HIGH);
@@ -617,15 +619,10 @@ void mainLoop(void* params) {
 						Serial.println("Received brag - becoming slave");
 #endif
 						becomeSlave();
-					} /*else {
-						// Become the master
-						// Note: if the node counts are equal, the node to finish last (i.e. us, here)
-						// becomes the master. This makes things simpler.
-#ifdef DEBUG_STATE
-						Serial.print("Received brag - becoming master");
-#endif
-						becomeMaster();
-					}*/
+					}
+					// Note: if the brag is smaller, don't immediately become master, because there
+					// may be more than 2 nodes doing master election (and so we may not have
+					// received all of the brags yet).
 				} else {
 					if (!bragSent) {
 						// Done collecting ping responses
@@ -760,7 +757,7 @@ void setup() {
 	}
 #endif
 
-	BeatDetector* beat = new BeatDetector();
+	beat = new BeatDetector();
 	xReturned = xTaskCreate(
 			&(BeatDetector::cast),       /* Function that implements the task. */
 			"BEAT",          /* Text name for the task. */
