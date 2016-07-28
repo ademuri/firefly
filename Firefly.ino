@@ -36,7 +36,7 @@
 #define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))
 #endif
 
-//#define DEBUG_STATE
+#define DEBUG_STATE
 
 #define DEBUG
 
@@ -57,7 +57,7 @@ const byte STATUS_LED = 8;
 
 // Nondecreasing number indicating the software version. Hopefully I'll remember to increment this
 // every time I update things :)
-const byte OUR_VERSION = 7;
+const byte OUR_VERSION = 8;
 const byte VERSION_BRIGHTNESS = 100;
 
 const unsigned long INIT_SEARCH_TIME_MILLIS = 2000;
@@ -77,9 +77,10 @@ const unsigned long BEACON_MODE_TIMEOUT = 5000;
 const unsigned long BEACON_MODE_BACKOFF = 100;
 
 // How long to wait for a beat before resuming steady beats
-const unsigned long BEAT_HEARTBEAT_INTERVAL = 1500;
+const unsigned long BEAT_HEARTBEAT_INTERVAL = 1000;
 const unsigned long HEARTBEAT_DURATION = 100;
-const unsigned long MASTER_SEARCH_TIME = 200;
+const unsigned long MASTER_SEARCH_TIME_MIN = 100;	 // must be greater than PING_WAIT
+const unsigned long MASTER_SEARCH_TIME_MAX = 300;
 const unsigned long PING_WAIT = 50;
 
 // Convert the constants above to ticks
@@ -88,7 +89,7 @@ const unsigned long HEARTBEAT_DURATION_TICKS = HEARTBEAT_DURATION / portTICK_PER
 // When we receive become a slave, we'll stop trying to be master for a random amount of time
 // between these two values.
 const unsigned long SLAVE_TIMEOUT_BACKOFF_MIN = 2000;
-const unsigned long SLAVE_TIMEOUT_BACKOFF_MAX = 5000;
+const unsigned long SLAVE_TIMEOUT_BACKOFF_MAX = 2000;
 
 // Min and max times between color changes
 const unsigned long COLOR_CHANGE_MIN = 4000;
@@ -165,9 +166,14 @@ unsigned long nextColorChange = 0;
 // enough, we'll become master.
 unsigned long slaveNoHeartbeatTimeout = 0;
 
+// During master election, when waiting for ping responses times out.
+unsigned long pingTimeout = 0;
+
+// During master election, when our search times out and we become the de facto master.
+unsigned long masterSearchTimeout = 0;
+
 
 // Outgoing-ping-related variables
-unsigned long pingStartedTime = 0;
 byte lastNonceLower = 0;
 byte lastNonceUpper = 0;
 byte lastPingCount = 0;
@@ -332,7 +338,8 @@ void broadcastPing() {
 
 	sendData(toSend);
 
-	pingStartedTime = millis();
+	pingTimeout = millis() + PING_WAIT;
+	masterSearchTimeout = millis() + random(MASTER_SEARCH_TIME_MIN, MASTER_SEARCH_TIME_MAX);
 	lastPingCount = 0;
 	lastReceivedBrag = 0;
 	bragReceived = false;
@@ -426,6 +433,7 @@ void becomeMaster() {
 	vTaskResume(beatTask);
 	nextColorChange = millis() + random(COLOR_CHANGE_MIN, COLOR_CHANGE_MAX);
 	digitalWrite(STATUS_LED, HIGH);
+	broadcastHeartbeat();
 }
 
 /**
@@ -436,6 +444,7 @@ void becomeSlave() {
 	setSlaveNoHeartbeatTimeout();
 	vTaskSuspend(beatTask);
 	digitalWrite(STATUS_LED, LOW);
+	beatDetected = false;
 }
 
 void setSlaveNoHeartbeatTimeout() {
@@ -581,8 +590,6 @@ void mainLoop(void* params) {
 				case MASTER_NEGOTIATE_ANNOUNCE:
 					bragReceived = true;
 					lastReceivedBrag = getNegotiateAnnounceCount(packet);
-					// TODO: if our count is already greater than this, don't wait for PING_WAIT to elapse,
-					// and just become the master already.
 					break;
 				case HEARTBEAT:
 				case BEACON_MODE:
@@ -601,7 +608,7 @@ void mainLoop(void* params) {
 				broadcastHeartbeat();
 			}
 
-			if (millis() > (pingStartedTime + PING_WAIT)) {
+			if (millis() > pingTimeout) {
 				// If we've already received another brag, check it
 				if (bragReceived) {
 					if (lastReceivedBrag > lastPingCount) {
@@ -610,7 +617,7 @@ void mainLoop(void* params) {
 						Serial.println("Received brag - becoming slave");
 #endif
 						becomeSlave();
-					} else {
+					} /*else {
 						// Become the master
 						// Note: if the node counts are equal, the node to finish last (i.e. us, here)
 						// becomes the master. This makes things simpler.
@@ -618,7 +625,7 @@ void mainLoop(void* params) {
 						Serial.print("Received brag - becoming master");
 #endif
 						becomeMaster();
-					}
+					}*/
 				} else {
 					if (!bragSent) {
 						// Done collecting ping responses
@@ -629,7 +636,7 @@ void mainLoop(void* params) {
 			}
 
 			// If the timeout expires, become the master and broadcast that we're doing so
-			if (state == MASTER_SELECTION && (millis() > (pingStartedTime + MASTER_SEARCH_TIME))) {
+			if (state == MASTER_SELECTION && (millis() > masterSearchTimeout)) {
 #ifdef DEBUG_STATE
 				Serial.println("Master search timed out");
 #endif
@@ -652,9 +659,11 @@ void mainLoop(void* params) {
 				case BEACON_MODE:
 					receiveBeaconMode(packet);
 					break;
+				case CLAIM_MASTER:
+					setSlaveNoHeartbeatTimeout();
+					break;
 				case UNKNOWN:
 				case PING_RESPONSE:
-				case CLAIM_MASTER:
 				default:
 					break;
 				}
