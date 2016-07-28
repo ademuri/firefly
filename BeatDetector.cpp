@@ -55,7 +55,7 @@ void BeatDetector::cast(void* param) {
 extern boolean beatDetected;
 
 // Minimum threshold. Higher values reject more noise, at the expense of ignoring valid beats.
-const float MIN_THRESH = 0.1f;
+const float MIN_THRESH = 0.4f;
 // Maximum threshold. Lower values prevent noise from spiking the threshold. Higher values allow
 // more dynamic range.
 const float MAX_THRESH = 10.f;

@@ -36,7 +36,7 @@
 #define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))
 #endif
 
-#define DEBUG_STATE
+//#define DEBUG_STATE
 
 #define DEBUG
 
@@ -57,7 +57,7 @@ const byte STATUS_LED = 8;
 
 // Nondecreasing number indicating the software version. Hopefully I'll remember to increment this
 // every time I update things :)
-const byte OUR_VERSION = 8;
+const byte OUR_VERSION = 9;
 const byte VERSION_BRIGHTNESS = 100;
 
 const unsigned long INIT_SEARCH_TIME_MILLIS = 2000;
@@ -76,8 +76,13 @@ const unsigned long BEACON_MODE_TIMEOUT = 5000;
 // for them to send it before sending it ourself, so that we don't both send it at the same time.
 const unsigned long BEACON_MODE_BACKOFF = 100;
 
-// How long to wait for a beat before resuming steady beats
+// During beat detection, the longest time between heartbeats. If we haven't detected a beat and
+// this runs out, we'll send a keepalive (heartbeat with the OFF pattern).
 const unsigned long BEAT_HEARTBEAT_INTERVAL = 1000;
+
+// While doing beat detection, if we don't see a beat for this long, go back to normal mode.
+const unsigned long BEAT_DETECTION_TIMEOUT = 5000;
+
 const unsigned long HEARTBEAT_DURATION = 100;
 const unsigned long MASTER_SEARCH_TIME_MIN = 100;	 // must be greater than PING_WAIT
 const unsigned long MASTER_SEARCH_TIME_MAX = 300;
@@ -89,7 +94,7 @@ const unsigned long HEARTBEAT_DURATION_TICKS = HEARTBEAT_DURATION / portTICK_PER
 // When we receive become a slave, we'll stop trying to be master for a random amount of time
 // between these two values.
 const unsigned long SLAVE_TIMEOUT_BACKOFF_MIN = 2000;
-const unsigned long SLAVE_TIMEOUT_BACKOFF_MAX = 2000;
+const unsigned long SLAVE_TIMEOUT_BACKOFF_MAX = 5000;
 
 // Min and max times between color changes
 const unsigned long COLOR_CHANGE_MIN = 4000;
@@ -159,6 +164,9 @@ unsigned long initStarted = 0;
 
 // In the master state, millis since we last broadcast a heartbeat
 unsigned long masterNextHeartbeatTime = 0;
+
+// How long to wait for beats before switching back to non-beat-detection mode.
+unsigned long beatDetectionTimeout = 0;
 
 // When we're a master, the time when we'll next change the heartbeat color.
 unsigned long nextColorChange = 0;
@@ -312,6 +320,21 @@ void broadcastHeartbeat() {
 
 	sendData(toSend);
 	processOwnHeartbeat(toSend);
+}
+
+// Heartbeat packet structure:
+// 0: type (HEARTBEAT)
+// 2: Pattern
+// 3: Red intensity
+// 4: Green intensity
+// 5: Blue intensity
+void broadcastKeepalive() {
+	masterNextHeartbeatTime = millis() + MASTER_HEARTBEAT_INTERVAL;
+
+	toSend.length = 5;
+	toSend.data[0] = HEARTBEAT;
+	toSend.data[1] = OFF;
+	sendData(toSend);
 }
 
 // Causes all other masters in range to become slaves. Structure:
@@ -526,8 +549,15 @@ void mainLoop(void* params) {
 				if (millis() > masterNextHeartbeatTime) {
 					broadcastHeartbeat();
 				}
-			} else if (beatDetected || millis() > masterNextHeartbeatTime) {
+			} else if (beatDetected) {
 				broadcastHeartbeat();
+				beatDetectionTimeout = millis() + BEAT_DETECTION_TIMEOUT;
+			} else if (millis() > masterNextHeartbeatTime) {
+				if (millis() > beatDetectionTimeout) {
+					broadcastHeartbeat();
+				} else {
+					broadcastKeepalive();
+				}
 			}
 			if (receiveData(&packet) > 0) {
 				switch(packet.data[0]) {

@@ -19,7 +19,9 @@ void PatternController::cast(void* param) {
 }
 
 void PatternController::setPattern(Pattern pattern, byte r, byte g, byte b) {
-	this->led->writeColor(r, g, b);
+	if (pattern != OFF) {
+		this->led->writeColor(r, g, b);
+	}
 
 	if (pattern != this->currentPattern) {
 		this->currentPattern = pattern;
