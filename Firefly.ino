@@ -52,9 +52,12 @@ const byte ANALOG_RANDOM_PIN = 1;
 // The digital input pin for the beacon switch
 const byte BEACON_PIN = 7;
 
+// Built-in LED
+const byte STATUS_LED = 8;
+
 // Nondecreasing number indicating the software version. Hopefully I'll remember to increment this
 // every time I update things :)
-const byte OUR_VERSION = 6;
+const byte OUR_VERSION = 7;
 const byte VERSION_BRIGHTNESS = 100;
 
 const unsigned long INIT_SEARCH_TIME_MILLIS = 2000;
@@ -82,8 +85,10 @@ const unsigned long PING_WAIT = 50;
 // Convert the constants above to ticks
 const unsigned long HEARTBEAT_DURATION_TICKS = HEARTBEAT_DURATION / portTICK_PERIOD_MS;
 
-// How long in slave mode without any heartbeats before becoming a master
-const unsigned long SLAVE_TIMEOUT = 2000;
+// When we receive become a slave, we'll stop trying to be master for a random amount of time
+// between these two values.
+const unsigned long SLAVE_TIMEOUT_BACKOFF_MIN = 2000;
+const unsigned long SLAVE_TIMEOUT_BACKOFF_MAX = 5000;
 
 // Min and max times between color changes
 const unsigned long COLOR_CHANGE_MIN = 4000;
@@ -158,7 +163,7 @@ unsigned long nextColorChange = 0;
 
 // When we're a slave, the last time we received a heartbeat. If we don't receive one for long
 // enough, we'll become master.
-unsigned long slaveLastHeartbeat = 0;
+unsigned long slaveNoHeartbeatTimeout = 0;
 
 
 // Outgoing-ping-related variables
@@ -420,6 +425,7 @@ void becomeMaster() {
 	broadcastClaimMaster();
 	vTaskResume(beatTask);
 	nextColorChange = millis() + random(COLOR_CHANGE_MIN, COLOR_CHANGE_MAX);
+	digitalWrite(STATUS_LED, HIGH);
 }
 
 /**
@@ -427,8 +433,13 @@ void becomeMaster() {
  */
 void becomeSlave() {
 	state = SLAVE;
-	slaveLastHeartbeat = millis();
+	setSlaveNoHeartbeatTimeout();
 	vTaskSuspend(beatTask);
+	digitalWrite(STATUS_LED, LOW);
+}
+
+void setSlaveNoHeartbeatTimeout() {
+	slaveNoHeartbeatTimeout = millis() + random(SLAVE_TIMEOUT_BACKOFF_MIN, SLAVE_TIMEOUT_BACKOFF_MAX);
 }
 
 byte getNegotiateAnnounceCount(CCPACKET brag) {
@@ -472,7 +483,7 @@ void mainLoop(void* params) {
 					switch(packet.data[0]) {
 					case HEARTBEAT:
 						state = SLAVE;
-						slaveLastHeartbeat = millis();
+						setSlaveNoHeartbeatTimeout();
 						processHeartbeat(packet);
 						break;
 					case CLAIM_MASTER:
@@ -630,7 +641,7 @@ void mainLoop(void* params) {
 				switch(packet.data[0]) {
 				case HEARTBEAT:
 					processHeartbeat(packet);
-					slaveLastHeartbeat = millis();
+					setSlaveNoHeartbeatTimeout();
 					break;
 				case PING:
 					respondToPing(packet);
@@ -648,7 +659,7 @@ void mainLoop(void* params) {
 					break;
 				}
 			} else {
-				if (millis() > slaveLastHeartbeat + SLAVE_TIMEOUT) {
+				if (millis() > slaveNoHeartbeatTimeout) {
 #ifdef DEBUG_STATE
 					Serial.println("No heartbeats - becoming master");
 #endif

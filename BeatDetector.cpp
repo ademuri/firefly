@@ -101,8 +101,6 @@ void BeatDetector::taskFunc() {
 			// Find repeating bass sounds 100 - 180bpm
 			beat = beatFilter(envelope);
 			if (beat > thresh) {
-				digitalWrite(8, HIGH);
-
 				// If (THRESH_RATIO * beat) > thresh, set thresh := (THRESH_RATIO * beat)
 				float maybeNewThresh = beat * THRESH_RATIO;
 				if (maybeNewThresh > MAX_THRESH) {
@@ -123,8 +121,6 @@ void BeatDetector::taskFunc() {
 					prevHighAt = millis();
 				}
 			} else {
-				digitalWrite(8, LOW);
-
 				if (millis() > prevHighAt + DEBOUNCE_MS) {
 					prevState = LOW;
 				}
