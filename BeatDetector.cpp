@@ -55,7 +55,7 @@ void BeatDetector::cast(void* param) {
 extern boolean beatDetected;
 
 // Minimum threshold. Higher values reject more noise, at the expense of ignoring valid beats.
-const float MIN_THRESH = 0.4f;
+const float MIN_THRESH = 0.3f;
 // Maximum threshold. Lower values prevent noise from spiking the threshold. Higher values allow
 // more dynamic range.
 const float MAX_THRESH = 10.f;
@@ -64,6 +64,9 @@ const float MAX_THRESH = 10.f;
 const float THRESH_DECAY = .001f;
 // What ratio of the peak incoming level to set the threshold to.
 const float THRESH_RATIO = 0.8f;
+
+float lastBeatAt = 0;
+float nextBeatAt = 0;
 
 TickType_t xLastWakeTime;
 
@@ -75,6 +78,7 @@ void BeatDetector::taskFunc() {
 	const long DEBOUNCE_MS = 100; // at 180bpm there'll be 330ms between beats
 	unsigned long prevHighAt = 0;
 	bool prevState = LOW;
+	bool detectorFlipped = false;
 
 	// There's a brief spike in the filtered signal. Run through the sampling for a little while
 	// to initialize the filter state.
@@ -118,14 +122,26 @@ void BeatDetector::taskFunc() {
 				}
 
 				if (prevState == LOW && (millis() > (prevHighAt + DEBOUNCE_MS))) {
-					beatDetected = true;
+					if (!detectorFlipped) {
+						beatDetected = true;
+					}
 					prevState = HIGH;
+					nextBeatAt = (millis() * 2) - prevHighAt - 60; // == millis + (millis - prevHighAt)
 					prevHighAt = millis();
+					detectorFlipped = false;
+					/*Serial.print(millis());
+					Serial.print(", ");
+					Serial.println(nextBeatAt);*/
 				}
 			} else {
 				if (millis() > prevHighAt + DEBOUNCE_MS) {
 					prevState = LOW;
 				}
+			}
+
+			if (!detectorFlipped && (millis() >= nextBeatAt)) {
+				beatDetected = true;
+				detectorFlipped = true;
 			}
 
 			if (thresh > MIN_THRESH) {
