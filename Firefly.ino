@@ -57,7 +57,7 @@ const byte STATUS_LED = 8;
 
 // Nondecreasing number indicating the software version. Hopefully I'll remember to increment this
 // every time I update things :)
-const byte OUR_VERSION = 9;
+const byte OUR_VERSION = 10;
 const byte VERSION_BRIGHTNESS = 100;
 
 const unsigned long INIT_SEARCH_TIME_MILLIS = 2000;
@@ -95,6 +95,9 @@ const unsigned long HEARTBEAT_DURATION_TICKS = HEARTBEAT_DURATION / portTICK_PER
 // between these two values.
 const unsigned long SLAVE_TIMEOUT_BACKOFF_MIN = 2000;
 const unsigned long SLAVE_TIMEOUT_BACKOFF_MAX = 5000;
+
+const unsigned long CLAIM_MASTER_TIMEOUT_MIN = 10000;
+const unsigned long CLAIM_MASTER_TIMEOUT_MAX = 20000;
 
 // Min and max times between color changes
 const unsigned long COLOR_CHANGE_MIN = 4000;
@@ -175,11 +178,20 @@ unsigned long nextColorChange = 0;
 // enough, we'll become master.
 unsigned long slaveNoHeartbeatTimeout = 0;
 
+// When we receive a CLAIM_MASTER, don't try to be master for a while. This is the timer for
+// tracking that - when millis() is greater than this, we're clear to try to be master again.
+unsigned long claimMasterTimeout = 0;
+
 // During master election, when waiting for ping responses times out.
 unsigned long pingTimeout = 0;
 
 // During master election, when our search times out and we become the de facto master.
 unsigned long masterSearchTimeout = 0;
+
+// Debug: print the status of the radio every so often
+#ifdef DEBUG_STATE
+unsigned long printStatusAt = 0;
+#endif
 
 
 // Outgoing-ping-related variables
@@ -476,6 +488,10 @@ void setSlaveNoHeartbeatTimeout() {
 	slaveNoHeartbeatTimeout = millis() + random(SLAVE_TIMEOUT_BACKOFF_MIN, SLAVE_TIMEOUT_BACKOFF_MAX);
 }
 
+void setClaimMasterTimeout() {
+	claimMasterTimeout = millis() + random(CLAIM_MASTER_TIMEOUT_MIN, CLAIM_MASTER_TIMEOUT_MAX);
+}
+
 byte getNegotiateAnnounceCount(CCPACKET brag) {
 	return brag.data[1];
 }
@@ -522,6 +538,7 @@ void mainLoop(void* params) {
 						break;
 					case CLAIM_MASTER:
 						state = SLAVE;
+						setClaimMasterTimeout();
 						break;
 					case PING:
 						respondToPing(packet);
@@ -564,6 +581,9 @@ void mainLoop(void* params) {
 				case HEARTBEAT:
 					// Two masters - time to do master selection!
 					state = MASTER_SELECTION;
+#ifdef DEBUG_STATE
+					Serial.println("HEARTBEAT received - master selection");
+#endif
 					broadcastPing();
 					break;
 				case PING:
@@ -571,6 +591,7 @@ void mainLoop(void* params) {
 					break;
 				case CLAIM_MASTER:
 					becomeSlave();
+					setClaimMasterTimeout();
 #ifdef DEBUG_STATE
 					Serial.println("CLAIM_MASTER received");
 #endif
@@ -604,6 +625,7 @@ void mainLoop(void* params) {
 					Serial.println("CLAIM_MASTER received, becoming slave");
 #endif
 					becomeSlave();
+					setClaimMasterTimeout();
 					break;
 				case PING:
 					respondToPing(packet);
@@ -688,6 +710,7 @@ void mainLoop(void* params) {
 					break;
 				case CLAIM_MASTER:
 					setSlaveNoHeartbeatTimeout();
+					setClaimMasterTimeout();
 					break;
 				case UNKNOWN:
 				case PING_RESPONSE:
@@ -695,7 +718,7 @@ void mainLoop(void* params) {
 					break;
 				}
 			} else {
-				if (millis() > slaveNoHeartbeatTimeout) {
+				if (millis() > slaveNoHeartbeatTimeout && millis() > claimMasterTimeout) {
 #ifdef DEBUG_STATE
 					Serial.println("No heartbeats - becoming master");
 #endif
@@ -713,6 +736,14 @@ void mainLoop(void* params) {
 			Serial.print(" -> ");
 			Serial.println(state);
 			prevState = state;
+		}
+#endif
+
+#ifdef DEBUG_STATE
+		if (millis() > printStatusAt) {
+			printStatusAt = millis() + 5000;
+			Serial.println(cc.readReg(CC1101_MARCSTATE, CC1101_STATUS_REGISTER));
+			//cc.cmdStrobe(CC1101_SCAL);
 		}
 #endif
 	} // must never exit
@@ -777,7 +808,7 @@ void setup() {
 	xReturned = xTaskCreate(
 			&(PatternController::cast),       /* Function that implements the task. */
 			"CTRL",          /* Text name for the task. */
-			150,      /* Stack size in words, not bytes. */
+			130,      /* Stack size in words, not bytes. */
 			(void*) ctrl,    /* Parameter passed into the task. */
 			2,/* Priority at which the task is created. */
 			NULL );      /* Used to pass out the created task's handle. */
@@ -791,7 +822,7 @@ void setup() {
 	xReturned = xTaskCreate(
 			&(BeatDetector::cast),       /* Function that implements the task. */
 			"BEAT",          /* Text name for the task. */
-			150,      /* Stack size in words, not bytes. */
+			130,      /* Stack size in words, not bytes. */
 			(void*) beat,    /* Parameter passed into the task. */
 			3,/* Priority at which the task is created. */
 			&beatTask );      /* Used to pass out the created task's handle. */
