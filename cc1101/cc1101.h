@@ -204,14 +204,24 @@ enum RFSTATE
  * Settings optimized for low current consumption
  */
 //#define CC1101_DEFVAL_IOCFG2     0x29        // GDO2 Output Pin Configuration
+
+// Raise GDO2 when packet is received with CRC ok. Deasserts when the first byte is read.
 #define CC1101_DEFVAL_IOCFG2     0x07        // GDO2 Output Pin Configuration
+
+//Asserts when RX FIFO is filled at or above the RX FIFO threshold or the end of packet is
+//reached. De-asserts when the RX FIFO is empty. This is how we know that there's data to read.
+//#define CC1101_DEFVAL_IOCFG2     0x01        // GDO2 Output Pin Configuration
+
 #define CC1101_DEFVAL_IOCFG1     0x2E        // GDO1 Output Pin Configuration
 #define CC1101_DEFVAL_IOCFG0     0x06        // GDO0 Output Pin Configuration
 #define CC1101_DEFVAL_FIFOTHR    0x07        // RX FIFO and TX FIFO Thresholds
 #define CC1101_DEFVAL_SYNC1      0xB5        // Synchronization word, high byte
 #define CC1101_DEFVAL_SYNC0      0x47        // Synchronization word, low byte
 #define CC1101_DEFVAL_PKTLEN     0x3D        // Packet Length
-#define CC1101_DEFVAL_PKTCTRL1   0x06        // Packet Automation Control
+//#define CC1101_DEFVAL_PKTCTRL1   0x06        // Packet Automation Control
+// Append two status bytes to payload of packet and enable automatic flush of RX FIFO when CRC is
+// not OK.
+#define CC1101_DEFVAL_PKTCTRL1   0b1100        // Packet Automation Control
 #define CC1101_DEFVAL_PKTCTRL0   0x05        // Packet Automation Control
 #define CC1101_DEFVAL_ADDR       0xFF        // Device Address
 #define CC1101_DEFVAL_CHANNR     0x00        // Channel Number

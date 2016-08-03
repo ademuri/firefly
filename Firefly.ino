@@ -528,28 +528,25 @@ void mainLoop(void* params) {
 		switch (state) {
 		case INIT:
 			if (receiveData(&packet) > 0) {
-				// Process all available packets
-				do {
-					switch(packet.data[0]) {
-					case HEARTBEAT:
-						state = SLAVE;
-						setSlaveNoHeartbeatTimeout();
-						processHeartbeat(packet);
-						break;
-					case CLAIM_MASTER:
-						state = SLAVE;
-						setClaimMasterTimeout();
-						break;
-					case PING:
-						respondToPing(packet);
-						break;
-					case PING_RESPONSE:
-					case BEACON_MODE:
-					case UNKNOWN:
-					default:
-						break;
-					}
-				} while (receiveData(&packet) > 0);
+				switch(packet.data[0]) {
+				case HEARTBEAT:
+					state = SLAVE;
+					setSlaveNoHeartbeatTimeout();
+					processHeartbeat(packet);
+					break;
+				case CLAIM_MASTER:
+					state = SLAVE;
+					setClaimMasterTimeout();
+					break;
+				case PING:
+					respondToPing(packet);
+					break;
+				case PING_RESPONSE:
+				case BEACON_MODE:
+				case UNKNOWN:
+				default:
+					break;
+				}
 			}
 			if (millis() > (initStarted + INIT_SEARCH_TIME_MILLIS)) {
 #ifdef DEBUG_STATE

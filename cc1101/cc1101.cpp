@@ -567,15 +567,13 @@ byte CC1101::receiveData(CCPACKET * packet)
   byte rxBytes = readStatusReg(CC1101_RXBYTES);
 
   // Any byte waiting to be read and no overflow?
-  if (rxBytes & 0x7F && !(rxBytes & 0x80))
-  {
+  if (rxBytes & 0x7F && !(rxBytes & 0x80)) {
     // Read data length
     packet->length = readConfigReg(CC1101_RXFIFO);
     // If packet is too long
-    if (packet->length > CC1101_DATA_LEN)
+    if (packet->length > CC1101_DATA_LEN) {
       packet->length = 0;   // Discard packet
-    else
-    {
+    } else {
       // Read data packet
       readBurstReg(packet->data, CC1101_RXFIFO, packet->length);
       // Read RSSI
@@ -583,14 +581,19 @@ byte CC1101::receiveData(CCPACKET * packet)
       // Read LQI and CRC_OK
       val = readConfigReg(CC1101_RXFIFO);
       packet->lqi = val & 0x7F;
-      packet->crc_ok = bitRead(val, 7);
+
+      // If CRC doesn't check out, discard packet
+      if (!bitRead(val, 7)) {
+    	  packet->length = 0;
+    	  return 0;
+      }
     }
-  }
-  else
+  } else {
     packet->length = 0;
+  }
 
   setIdleState();       // Enter IDLE state
-  //flushRxFifo();        // Flush Rx FIFO
+  flushRxFifo();        // Flush Rx FIFO
   //cmdStrobe(CC1101_SCAL);
 
   // Back to RX state
