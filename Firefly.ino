@@ -57,7 +57,7 @@ const byte STATUS_LED = 8;
 
 // Nondecreasing number indicating the software version. Hopefully I'll remember to increment this
 // every time I update things :)
-const byte OUR_VERSION = 10;
+const byte OUR_VERSION = 11;
 const byte VERSION_BRIGHTNESS = 100;
 
 const unsigned long INIT_SEARCH_TIME_MILLIS = 2000;
@@ -197,7 +197,7 @@ unsigned long printStatusAt = 0;
 // Outgoing-ping-related variables
 byte lastNonceLower = 0;
 byte lastNonceUpper = 0;
-byte lastPingCount = 0;
+byte masterElectionRandomNumber = 0;
 byte lastReceivedBrag = 0;
 bool bragReceived = false;
 bool bragSent = false;
@@ -322,9 +322,11 @@ void broadcastHeartbeat() {
 	toSend.data[0] = HEARTBEAT;
 
 	if (beaconMode) {
-		toSend.data[1] = BLINK_TWICE | TTL_MASK;
+		//toSend.data[1] = BLINK_TWICE | TTL_MASK;
+		toSend.data[1] = BLINK_TWICE;
 	} else {
-		toSend.data[1] = BLINK_ONCE | TTL_MASK;
+		//toSend.data[1] = BLINK_ONCE | TTL_MASK;
+		toSend.data[1] = BLINK_ONCE;
 	}
 	toSend.data[2] = heartbeatR;
 	toSend.data[3] = heartbeatG;
@@ -376,23 +378,10 @@ void broadcastPing() {
 
 	pingTimeout = millis() + PING_WAIT;
 	masterSearchTimeout = millis() + random(MASTER_SEARCH_TIME_MIN, MASTER_SEARCH_TIME_MAX);
-	lastPingCount = 0;
+	masterElectionRandomNumber = 0;
 	lastReceivedBrag = 0;
 	bragReceived = false;
 	bragSent = false;
-}
-
-// Responds to a ping, i.e. signals that mutual communication is possible.
-// 0: type (PING_RESPONSE)
-// 1: nonce 0
-// 2: nonce 1
-void respondToPing(CCPACKET originalPing) {
-	toSend.length = 3;
-	toSend.data[0] = PING_RESPONSE;
-	toSend.data[1] = originalPing.data[1];
-	toSend.data[2] = originalPing.data[2];
-
-	sendData(toSend);
 }
 
 // Displays GREEN if we're at or above the specified software version, RED otherwise.
@@ -455,7 +444,7 @@ bool isMyPing(CCPACKET pingResponse) {
 void broadcastMasterNegotiateAnnounce() {
 	toSend.length = 2;
 	toSend.data[0] = MASTER_NEGOTIATE_ANNOUNCE;
-	toSend.data[1] = lastPingCount;
+	toSend.data[1] = masterElectionRandomNumber = random(0, 255);
 
 	sendData(toSend);
 }
@@ -539,7 +528,6 @@ void mainLoop(void* params) {
 					setClaimMasterTimeout();
 					break;
 				case PING:
-					respondToPing(packet);
 					break;
 				case PING_RESPONSE:
 				case BEACON_MODE:
@@ -581,10 +569,9 @@ void mainLoop(void* params) {
 #ifdef DEBUG_STATE
 					Serial.println("HEARTBEAT received - master selection");
 #endif
-					broadcastPing();
+					//broadcastPing();
 					break;
 				case PING:
-					respondToPing(packet);
 					break;
 				case CLAIM_MASTER:
 					becomeSlave();
@@ -625,22 +612,15 @@ void mainLoop(void* params) {
 					setClaimMasterTimeout();
 					break;
 				case PING:
-					respondToPing(packet);
 					break;
 				case PING_RESPONSE:
-					// Note: we don't check whether the PING_WAIT time has expired here - we assume that
-					// this loop is fast and it will get picked up below
-					if (isMyPing(packet)) {
-						lastPingCount++;
-#ifdef DEBUG_STATE
-						Serial.print("Received ping: ");
-						Serial.println(lastPingCount, DEC);
-#endif
-					}
 					break;
 				case MASTER_NEGOTIATE_ANNOUNCE:
 					bragReceived = true;
 					lastReceivedBrag = getNegotiateAnnounceCount(packet);
+					if (lastReceivedBrag > masterElectionRandomNumber) {
+						state = SLAVE;
+					}
 					break;
 				case HEARTBEAT:
 				case BEACON_MODE:
@@ -659,28 +639,6 @@ void mainLoop(void* params) {
 				broadcastHeartbeat();
 			}
 
-			if (millis() > pingTimeout) {
-				// If we've already received another brag, check it
-				if (bragReceived) {
-					if (lastReceivedBrag > lastPingCount) {
-						// Become the slave
-#ifdef DEBUG_STATE
-						Serial.println("Received brag - becoming slave");
-#endif
-						becomeSlave();
-					}
-					// Note: if the brag is smaller, don't immediately become master, because there
-					// may be more than 2 nodes doing master election (and so we may not have
-					// received all of the brags yet).
-				} else {
-					if (!bragSent) {
-						// Done collecting ping responses
-						broadcastMasterNegotiateAnnounce();
-						bragSent = true;
-					}
-				}
-			}
-
 			// If the timeout expires, become the master and broadcast that we're doing so
 			if (state == MASTER_SELECTION && (millis() > masterSearchTimeout)) {
 #ifdef DEBUG_STATE
@@ -697,7 +655,6 @@ void mainLoop(void* params) {
 					setSlaveNoHeartbeatTimeout();
 					break;
 				case PING:
-					respondToPing(packet);
 					break;
 				case CHECK_VERSION:
 					respondToVersion(packet);
