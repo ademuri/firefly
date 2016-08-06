@@ -585,6 +585,7 @@ byte CC1101::receiveData(CCPACKET * packet)
       // If CRC doesn't check out, discard packet
       if (!bitRead(val, 7)) {
     	  packet->length = 0;
+    	  taskEXIT_CRITICAL();
     	  return 0;
       }
     }

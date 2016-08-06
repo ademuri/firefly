@@ -869,7 +869,7 @@ void vApplicationStackOverflowHook( TaskHandle_t xTask, portCHAR *pcTaskName ) {
 		analogWrite(6, 50);
 	}
 
-	Serial.println(pcTaskName);
+	//Serial.println(pcTaskName);
 }
 #endif // DEBUG
 
