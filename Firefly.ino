@@ -736,7 +736,7 @@ void setup() {
 	BaseType_t xReturned = xTaskCreate(
 	                    &mainLoop,       /* Function that implements the task. */
 	                    "MAIN",          /* Text name for the task. */
-	                    200,      /* Stack size in words, not bytes. */
+	                    250,      /* Stack size in words, not bytes. */
 	                    NULL,    /* Parameter passed into the task. */
 	                    1,/* Priority at which the task is created. */
 	                    NULL );      /* Used to pass out the created task's handle. */
@@ -764,7 +764,7 @@ void setup() {
 	xReturned = xTaskCreate(
 			&(Led::cast),       /* Function that implements the task. */
 			"LED",          /* Text name for the task. */
-			85,      /* Stack size in words, not bytes. */
+			120,      /* Stack size in words, not bytes. */
 			(void*) led,    /* Parameter passed into the task. */
 			2,/* Priority at which the task is created. */
 			NULL );      /* Used to pass out the created task's handle. */
@@ -778,7 +778,7 @@ void setup() {
 	xReturned = xTaskCreate(
 			&(PatternController::cast),       /* Function that implements the task. */
 			"CTRL",          /* Text name for the task. */
-			130,      /* Stack size in words, not bytes. */
+			200,      /* Stack size in words, not bytes. */
 			(void*) ctrl,    /* Parameter passed into the task. */
 			2,/* Priority at which the task is created. */
 			NULL );      /* Used to pass out the created task's handle. */
@@ -792,7 +792,7 @@ void setup() {
 	xReturned = xTaskCreate(
 			&(BeatDetector::cast),       /* Function that implements the task. */
 			"BEAT",          /* Text name for the task. */
-			130,      /* Stack size in words, not bytes. */
+			150,      /* Stack size in words, not bytes. */
 			(void*) beat,    /* Parameter passed into the task. */
 			3,/* Priority at which the task is created. */
 			&beatTask );      /* Used to pass out the created task's handle. */
@@ -840,7 +840,36 @@ void setup() {
 // Called if a stack overflow is detected
 #ifdef DEBUG
 void vApplicationStackOverflowHook( TaskHandle_t xTask, portCHAR *pcTaskName ) {
-	Serial.println("overflow");
+	//Serial.println("overflow");
+	analogWrite(3, 0);
+	analogWrite(5, 0);
+	analogWrite(6, 0);
+
+	switch(pcTaskName[0]) {
+	case 'M': // MAIN
+		analogWrite(3, 50);
+		break;
+
+	case 'L': // LED
+		analogWrite(5, 50);
+		break;
+
+	case 'C': // CTRL
+		analogWrite(6, 50);
+		break;
+
+	case 'B': // BEAT
+		analogWrite(3, 50);
+		analogWrite(6, 50);
+		break;
+
+	default:
+		analogWrite(3, 50);
+		analogWrite(5, 50);
+		analogWrite(6, 50);
+	}
+
+	Serial.println(pcTaskName);
 }
 #endif // DEBUG
 
