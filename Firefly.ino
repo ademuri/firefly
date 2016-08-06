@@ -19,6 +19,7 @@
  */
 
 #include "Arduino.h"
+#include <avr/wdt.h>
 
 #include "Arduino_FreeRTOS.h"
 #include "cc1101/cc1101.h"
@@ -102,6 +103,9 @@ const unsigned long CLAIM_MASTER_TIMEOUT_MAX = 20000;
 // Min and max times between color changes
 const unsigned long COLOR_CHANGE_MIN = 4000;
 const unsigned long COLOR_CHANGE_MAX = 10000;
+
+// How frequently to calibrate the radio (by issuing FSTXON)
+const unsigned long CALIBRATE_EVERY = 30000;
 
 // When generating a random color, the minimum (sum) brightness of the colors allowed.
 const unsigned int MIN_SUM_BRIGHTNESS = 90;
@@ -193,6 +197,7 @@ unsigned long masterSearchTimeout = 0;
 unsigned long printStatusAt = 0;
 #endif
 
+unsigned long calibrateAt = 0;
 
 // Outgoing-ping-related variables
 byte lastNonceLower = 0;
@@ -492,6 +497,8 @@ State prevState = INIT;
 void mainLoop(void* params) {
 	Serial.println("done.");
 
+	wdt_enable(WDTO_2S);
+
 #ifdef DEBUG_VERSION
 	broadcastCheckVersion();
 	// Also blink the "GOOD" pattern ourselves
@@ -693,6 +700,12 @@ void mainLoop(void* params) {
 		}
 #endif
 
+	if (millis() > calibrateAt) {
+		calibrateAt = millis() + CALIBRATE_EVERY;
+		cc.cmdStrobe(CC1101_SFSTXON);
+		vTaskDelay(1);
+		cc.cmdStrobe(CC1101_SRX);
+	}
 #ifdef DEBUG_STATE
 		if (millis() > printStatusAt) {
 			printStatusAt = millis() + 5000;
@@ -700,11 +713,14 @@ void mainLoop(void* params) {
 			//cc.cmdStrobe(CC1101_SCAL);
 		}
 #endif
+
+		wdt_reset();
 	} // must never exit
 }
 
 //The setup function is called once at startup of the sketch
 void setup() {
+	wdt_disable();
 	Serial.begin(57600);
 	randomSeed(analogRead(ANALOG_RANDOM_PIN));
 
