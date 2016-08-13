@@ -58,12 +58,12 @@ extern boolean beatDetected;
 const float MIN_THRESH = 0.4f;
 // Maximum threshold. Lower values prevent noise from spiking the threshold. Higher values allow
 // more dynamic range.
-const float MAX_THRESH = 10.f;
+const float MAX_THRESH = 100.f;
 // The amount that the threshold decays per cycle. The sampling code (and thus the decay) runs
-// at 500hz.
+// at 1000hz.
 const float THRESH_DECAY = .001f;
 // What ratio of the peak incoming level to set the threshold to.
-const float THRESH_RATIO = 0.8f;
+const float THRESH_RATIO = 0.5f;
 
 TickType_t xLastWakeTime;
 
@@ -117,7 +117,8 @@ void BeatDetector::taskFunc() {
 					thresh = maybeNewThresh;
 				}
 
-				if (prevState == LOW && (millis() > (prevHighAt + DEBOUNCE_MS))) {
+				//if (prevState == LOW && (millis() > (prevHighAt + DEBOUNCE_MS))) {
+				if (prevState == LOW) {
 					beatDetected = true;
 					prevState = HIGH;
 					prevHighAt = millis();
