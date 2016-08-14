@@ -58,7 +58,7 @@ const byte STATUS_LED = 8;
 
 // Nondecreasing number indicating the software version. Hopefully I'll remember to increment this
 // every time I update things :)
-const byte OUR_VERSION = 13;
+const byte OUR_VERSION = 14;
 const byte VERSION_BRIGHTNESS = 100;
 
 const unsigned long INIT_SEARCH_TIME_MILLIS = 2000;
@@ -327,11 +327,11 @@ void broadcastHeartbeat() {
 	toSend.data[0] = HEARTBEAT;
 
 	if (beaconMode) {
-		//toSend.data[1] = BLINK_TWICE | TTL_MASK;
-		toSend.data[1] = BLINK_TWICE;
+		toSend.data[1] = BLINK_TWICE | TTL_MASK;
+		//toSend.data[1] = BLINK_TWICE;
 	} else {
-		//toSend.data[1] = BLINK_ONCE | TTL_MASK;
-		toSend.data[1] = BLINK_ONCE;
+		toSend.data[1] = BLINK_ONCE | TTL_MASK;
+		//toSend.data[1] = BLINK_ONCE;
 	}
 	toSend.data[2] = heartbeatR;
 	toSend.data[3] = heartbeatG;
