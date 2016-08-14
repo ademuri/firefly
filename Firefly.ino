@@ -58,7 +58,7 @@ const byte STATUS_LED = 8;
 
 // Nondecreasing number indicating the software version. Hopefully I'll remember to increment this
 // every time I update things :)
-const byte OUR_VERSION = 12;
+const byte OUR_VERSION = 13;
 const byte VERSION_BRIGHTNESS = 100;
 
 const unsigned long INIT_SEARCH_TIME_MILLIS = 2000;
@@ -702,7 +702,8 @@ void mainLoop(void* params) {
 
 	if (millis() > calibrateAt) {
 		calibrateAt = millis() + CALIBRATE_EVERY;
-		cc.cmdStrobe(CC1101_SFSTXON);
+		cc.cmdStrobe(CC1101_SIDLE);
+		cc.cmdStrobe(CC1101_SCAL);
 		vTaskDelay(1);
 		cc.cmdStrobe(CC1101_SRX);
 	}

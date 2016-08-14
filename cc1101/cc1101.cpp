@@ -559,6 +559,12 @@ Serial.println();
 byte CC1101::receiveData(CCPACKET * packet)
 {
   byte val;
+
+  if (millis() > resetRxAt) {
+	  setRxState();
+	  resetRxAt = millis() + RESET_RX_EVERY;
+  }
+
   if (!digitalRead(GDO2)) {
 	  return 0;
   }
@@ -567,13 +573,14 @@ byte CC1101::receiveData(CCPACKET * packet)
   byte rxBytes = readStatusReg(CC1101_RXBYTES);
 
   // Any byte waiting to be read and no overflow?
-  if (rxBytes & 0x7F && !(rxBytes & 0x80)) {
+  if ((rxBytes & 0x7F) && !(rxBytes & 0x80)) {
     // Read data length
     packet->length = readConfigReg(CC1101_RXFIFO);
     // If packet is too long
     if (packet->length > CC1101_DATA_LEN) {
       packet->length = 0;   // Discard packet
     } else {
+      resetRxAt = millis() + RESET_RX_EVERY;
       // Read data packet
       readBurstReg(packet->data, CC1101_RXFIFO, packet->length);
       // Read RSSI
@@ -585,6 +592,7 @@ byte CC1101::receiveData(CCPACKET * packet)
       // If CRC doesn't check out, discard packet
       if (!bitRead(val, 7)) {
     	  packet->length = 0;
+    	  setRxState();
     	  taskEXIT_CRITICAL();
     	  return 0;
       }
@@ -595,7 +603,6 @@ byte CC1101::receiveData(CCPACKET * packet)
 
   setIdleState();       // Enter IDLE state
   flushRxFifo();        // Flush Rx FIFO
-  //cmdStrobe(CC1101_SCAL);
 
   // Back to RX state
   setRxState();

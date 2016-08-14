@@ -247,10 +247,13 @@ enum RFSTATE
 #define CC1101_DEFVAL_MDMCFG0    0xF8        // Modem Configuration
 #define CC1101_DEFVAL_DEVIATN    0x35        // Modem Deviation Setting
 #define CC1101_DEFVAL_MCSM2      0x07        // Main Radio Control State Machine Configuration
-//#define CC1101_DEFVAL_MCSM1      0x30        // Main Radio Control State Machine Configuration
-#define CC1101_DEFVAL_MCSM1      0x20        // Main Radio Control State Machine Configuration
+// Only transmit If RSSI below threshold unless currently receiving a packet.
+// After RX or TX, go to IDLE state.
+#define CC1101_DEFVAL_MCSM1      0x30        // Main Radio Control State Machine Configuration
 //#define CC1101_DEFVAL_MCSM0      0x08        // Main Radio Control State Machine Configuration - no automatic calibration
-#define CC1101_DEFVAL_MCSM0      0x18        // Main Radio Control State Machine Configuration
+
+// Automatically calibrate every 4th time when going from RX or TX to IDLE automatically
+#define CC1101_DEFVAL_MCSM0      0x38        // Main Radio Control State Machine Configuration
 #define CC1101_DEFVAL_FOCCFG     0x16        // Frequency Offset Compensation Configuration
 #define CC1101_DEFVAL_BSCFG      0x6C        // Bit Synchronization Configuration
 #define CC1101_DEFVAL_AGCCTRL2   0x43        // AGC Control
@@ -318,6 +321,15 @@ class CC1101
      * Atmega's SPI interface
      */
     SPI spi;
+
+    /**
+     * There's a chance that our state will be off and while we think that we're in RX, the radio is
+     * actually in IDLE. To ameliorate this, if we haven't received a packet in 1s, set RX mode
+     * manually.
+     */
+    unsigned long resetRxAt = 0;
+
+    const unsigned long RESET_RX_EVERY = 1000;
 
     /**
      * writeBurstReg
